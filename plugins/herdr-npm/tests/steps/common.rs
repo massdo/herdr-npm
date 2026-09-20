@@ -105,6 +105,9 @@ async fn leftmost_working(world: &mut BddWorld, pane: String) {
 #[when(regex = r#"^I invoke the "herdr-npm.toggle" action$"#)]
 async fn invoke_toggle(world: &mut BddWorld) {
     run_locked_toggle(world);
+    if world.tui_wanted {
+        crate::support::tui::open_sidebar(world);
+    }
 }
 
 #[then(regex = r#"^a sidebar pane is opened to the left of pane "([^"]+)"$"#)]

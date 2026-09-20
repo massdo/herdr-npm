@@ -93,8 +93,8 @@ impl fmt::Display for AppError {
             }
             Self::NoPackageJson => write!(f, "No package.json found"),
             Self::InvalidPackageJson => write!(f, "package.json is not valid JSON"),
-            Self::CannotReadPackageJson { path } => {
-                write!(f, "Cannot read package.json ({})", path.display())
+            Self::CannotReadPackageJson { .. } => {
+                write!(f, "Cannot read package.json")
             }
             Self::ScriptsNotObjectOfStrings => {
                 write!(f, "package.json scripts must be an object of strings")

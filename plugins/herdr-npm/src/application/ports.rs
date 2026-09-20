@@ -39,7 +39,25 @@ pub struct CreateTab {
     pub focus: bool,
 }
 
-/// Filesystem access for package.json. Unimplemented in the skeleton lot.
+/// Result of walking to the nearest package.json. `root` is set as soon as a
+/// candidate is found, even when parsing then fails, so a nested invalid or
+/// empty package is not mistaken for its parent.
+#[derive(Debug, Clone)]
+pub struct LoadedCatalog {
+    pub root: Option<PathBuf>,
+    pub catalog: Result<PackageCatalog, AppError>,
+}
+
+impl LoadedCatalog {
+    pub fn from_error(error: AppError) -> Self {
+        Self {
+            root: None,
+            catalog: Err(error),
+        }
+    }
+}
+
+/// Filesystem access for package.json.
 pub trait ProjectPort {
-    fn load_catalog(&self, start_dir: &Path) -> Result<PackageCatalog, AppError>;
+    fn load_catalog(&self, start_dir: &Path) -> LoadedCatalog;
 }

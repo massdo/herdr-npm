@@ -2,6 +2,7 @@ pub mod catalog;
 pub mod error;
 pub mod geometry;
 pub mod ids;
+pub mod package_manager;
 pub mod pane;
 pub mod sidebar_decision;
 

@@ -1,20 +1,19 @@
 use std::path::Path;
 
-use herdr_npm::application::ports::ProjectPort;
-use herdr_npm::domain::catalog::PackageCatalog;
+use herdr_npm::application::ports::{LoadedCatalog, ProjectPort};
 use herdr_npm::domain::error::AppError;
 
-/// Filesystem fake. Catalogue loading is implemented in the catalog lot.
+/// Filesystem fake kept for toggle scenarios that never load a catalogue.
 #[derive(Debug, Default)]
 pub struct FakeProject;
 
 impl ProjectPort for FakeProject {
-    fn load_catalog(&self, start_dir: &Path) -> Result<PackageCatalog, AppError> {
+    fn load_catalog(&self, start_dir: &Path) -> LoadedCatalog {
         let _ = start_dir;
-        Err(AppError::herdr(
+        LoadedCatalog::from_error(AppError::herdr(
             "project.load_catalog",
             "not_implemented",
-            "catalog lot has not implemented package.json reading yet",
+            "catalog tests use FsProject, not FakeProject",
         ))
     }
 }
