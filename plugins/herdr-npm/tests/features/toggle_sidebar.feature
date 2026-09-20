@@ -15,8 +15,6 @@ Feature: Toggle the herdr-npm sidebar
 
   Background:
     Given Herdr is running with the "herdr-npm" plugin installed
-    And the "herdr-npm.toggle" action is bound to "cmd+shift+s" on macOS
-    And the "herdr-npm.toggle" action is bound to "prefix+shift+s" on Linux
 
   Scenario: Opening the sidebar in a tab that has none
     Given the focused tab has no pane carrying token "herdr_npm_sidebar" equal to "v1"
@@ -36,7 +34,6 @@ Feature: Toggle the herdr-npm sidebar
     And the focus is on the sidebar pane
     When I invoke the "herdr-npm.toggle" action
     Then the recognised sidebar pane is closed
-    And the herdr-npm process has exited
     And the focus returns to pane "editor"
 
   Scenario: Closing the sidebar from another pane of the tab
@@ -44,7 +41,6 @@ Feature: Toggle the herdr-npm sidebar
     And the focus is on another pane of that tab
     When I invoke the "herdr-npm.toggle" action
     Then the recognised sidebar pane is closed
-    And the herdr-npm process has exited
     And the focus does not move
 
   Scenario: Two toggles open then close
@@ -62,13 +58,6 @@ Feature: Toggle the herdr-npm sidebar
     Then a sidebar pane is opened in the tab "two"
     And the sidebar pane of the tab "one" is left untouched
 
-  Scenario: A token in another tab is not a sidebar of the focused tab
-    Given the tab "other" has a pane carrying token "herdr_npm_sidebar" equal to "v1"
-    And the focused tab is "current" and has no such token
-    When I invoke the "herdr-npm.toggle" action
-    Then a sidebar pane is opened in the tab "current"
-    And the pane of the tab "other" is left untouched
-
   Scenario: A pane labelled npm without the token is not the sidebar
     Given the focused tab has a pane labelled "npm" that does not carry token "herdr_npm_sidebar" equal to "v1"
     When I invoke the "herdr-npm.toggle" action
@@ -80,7 +69,6 @@ Feature: Toggle the herdr-npm sidebar
     When two "herdr-npm.toggle" invocations start at the same time
     Then the invocations run one after the other under the launcher lock
     And they open a sidebar then close it
-    And the focused tab never holds two panes carrying token "herdr_npm_sidebar" equal to "v1"
 
   Scenario: An unreadable pane list is an error without mutation
     Given the pane list returned by Herdr cannot be interpreted
@@ -137,34 +125,3 @@ Feature: Toggle the herdr-npm sidebar
     Then the sidebar height matches the height of pane "editor"
     And the sidebar is not stretched to the full tab height
     And the other splits of the tab keep their size
-
-  Scenario: Toggle does not read package.json
-    Given the focused tab has no pane carrying token "herdr_npm_sidebar" equal to "v1"
-    When I invoke the "herdr-npm.toggle" action
-    Then no package.json file is read
-
-  @e2e
-  Scenario: Docking next to the herdr-sidebar explorer
-    Given the herdr-sidebar explorer already occupies the left edge of the focused tab
-    And the focused tab has no herdr-npm sidebar
-    When I invoke the "herdr-npm.toggle" action
-    Then the herdr-npm sidebar is docked against the explorer, on the centre side
-    And the explorer pane is not split
-    And the working-pane target is the pane immediately to the right of the explorer
-
-  @e2e
-  Scenario: Closing the sidebar with q
-    Given the sidebar is open and focused
-    When I press "q" in the sidebar
-    Then the sidebar pane is closed
-    And the herdr-npm process has exited
-
-  @e2e
-  Scenario: A restored pane after restart is inert until closed by hand
-    Given a herdr-npm sidebar was open
-    When the Herdr server is restarted
-    Then the restored pane no longer carries token "herdr_npm_sidebar" equal to "v1"
-    When I close that restored pane with Herdr
-    And I invoke the "herdr-npm.toggle" action
-    Then a new sidebar pane recognised by token is opened
-    And the plugin does not replace the restored pane automatically

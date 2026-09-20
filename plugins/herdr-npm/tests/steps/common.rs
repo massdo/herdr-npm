@@ -6,7 +6,6 @@ use herdr_npm::domain::ids::{PaneId, TabId, WorkspaceId};
 use herdr_npm::domain::pane::OriginContext;
 use herdr_npm::domain::{SIDEBAR_TOKEN_KEY, SIDEBAR_TOKEN_VALUE};
 
-use crate::support::e2e;
 use crate::support::world::BddWorld;
 
 pub(crate) fn run_locked_toggle(world: &mut BddWorld) {
@@ -30,8 +29,7 @@ pub(crate) fn run_locked_toggle(world: &mut BddWorld) {
                 world.last_error = None;
                 world.confirmed = true;
             }
-            Ok(ToggleOutcome::Closed(pane)) => {
-                world.closed_pane = Some(pane);
+            Ok(ToggleOutcome::Closed(_)) => {
                 world.last_error = None;
                 world.confirmed = true;
             }
@@ -43,25 +41,8 @@ pub(crate) fn run_locked_toggle(world: &mut BddWorld) {
     }
 }
 
-#[given(regex = r#"^Herdr is running with the "([^"]+)" plugin installed$"#)]
-async fn herdr_running(world: &mut BddWorld, plugin: String) {
-    world.plugin_id = Some(plugin.clone());
-    if e2e::active() {
-        let list = e2e::live().stdout(&["plugin", "list"]);
-        assert!(
-            list.contains(&plugin),
-            "isolated plugin list does not include {plugin}:\n{list}"
-        );
-        world.e2e_working_pane = Some(e2e::working_pane(world));
-        world.workspace_id = e2e::live()
-            .panes()
-            .first()
-            .and_then(|pane| pane.get("workspace_id"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("w1")
-            .to_string();
-        return;
-    }
+#[given("Herdr is running with the \"herdr-npm\" plugin installed")]
+async fn herdr_running(world: &mut BddWorld) {
     world.herdr.seed_single_tab("w1", "w1:t1", "w1:p1");
     world.origin = Some(OriginContext {
         workspace_id: WorkspaceId("w1".into()),
@@ -70,14 +51,6 @@ async fn herdr_running(world: &mut BddWorld, plugin: String) {
         foreground_cwd: Some("/work/app".into()),
         cwd: Some("/work/app".into()),
     });
-}
-
-#[given(regex = r#"^the "herdr-npm.toggle" action is bound to "([^"]+)" on (macOS|Linux)$"#)]
-async fn action_bound(_world: &mut BddWorld, key: String, os: String) {
-    assert!(!key.is_empty(), "binding for {os} must name a key");
-    if e2e::active() {
-        e2e::assert_binding_in_config(&key);
-    }
 }
 
 #[given(
@@ -124,34 +97,6 @@ async fn leftmost_working(world: &mut BddWorld, pane: String) {
 
 #[when(regex = r#"^I invoke the "herdr-npm.toggle" action$"#)]
 async fn invoke_toggle(world: &mut BddWorld) {
-    if e2e::active() {
-        let before: Vec<String> = e2e::live()
-            .panes()
-            .iter()
-            .map(|pane| crate::support::live::pane_id(pane).to_string())
-            .collect();
-        world.pane_ids_before = before;
-        e2e::invoke_toggle();
-        e2e::live().wait_until(std::time::Duration::from_secs(8), |herdr| {
-            e2e::sidebar_pane().is_some()
-                || herdr.panes().len() != world.pane_ids_before.len()
-                || herdr.panes().iter().any(|pane| {
-                    !world
-                        .pane_ids_before
-                        .iter()
-                        .any(|id| id == crate::support::live::pane_id(pane))
-                })
-        });
-        world.e2e_sidebar_pane = e2e::sidebar_pane();
-        world.confirmed = world.e2e_sidebar_pane.is_some()
-            || world.pane_ids_before.iter().any(|id| {
-                e2e::live()
-                    .panes()
-                    .iter()
-                    .all(|pane| crate::support::live::pane_id(pane) != id)
-            });
-        return;
-    }
     run_locked_toggle(world);
     if world.tui_wanted {
         crate::support::tui::open_sidebar(world);

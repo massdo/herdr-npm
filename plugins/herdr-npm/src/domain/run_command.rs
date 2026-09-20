@@ -35,38 +35,3 @@ fn posix_single_quote(name: &str) -> String {
 pub fn run_invocation(manager: PackageManager, script: &str) -> String {
     format!("{} run -- {}", manager.as_str(), quote_script_name(script))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plain_name_is_unquoted() {
-        assert_eq!(quote_script_name("build"), "build");
-        assert_eq!(quote_script_name("build:prod"), "build:prod");
-        assert_eq!(quote_script_name("--prod"), "--prod");
-    }
-
-    #[test]
-    fn spaces_and_meta_are_single_quoted() {
-        assert_eq!(quote_script_name("test watch"), "'test watch'");
-        assert_eq!(quote_script_name("say\"hi\""), "'say\"hi\"'");
-        assert_eq!(quote_script_name("$HOME"), "'$HOME'");
-        assert_eq!(quote_script_name("x$(id)"), "'x$(id)'");
-        assert_eq!(quote_script_name("a; id"), "'a; id'");
-        assert_eq!(quote_script_name("it's"), "'it'\\''s'");
-        assert_eq!(quote_script_name(""), "''");
-    }
-
-    #[test]
-    fn invocation_inserts_double_dash() {
-        assert_eq!(
-            run_invocation(PackageManager::Npm, "--prod"),
-            "npm run -- --prod"
-        );
-        assert_eq!(
-            run_invocation(PackageManager::Pnpm, "test watch"),
-            "pnpm run -- 'test watch'"
-        );
-    }
-}

@@ -36,7 +36,6 @@ struct Inner {
     list_inflight: u32,
     max_list_inflight: u32,
     focused: Option<String>,
-    exited: Vec<String>,
     diverted_tab: Option<String>,
     created_tabs: Vec<FakeTab>,
     next_tab: u32,
@@ -71,7 +70,6 @@ impl Default for Inner {
             list_inflight: 0,
             max_list_inflight: 0,
             focused: None,
-            exited: Vec::new(),
             diverted_tab: None,
             created_tabs: Vec::new(),
             next_tab: 1,
@@ -111,10 +109,6 @@ impl FakeHerdr {
 
     pub fn focused(&self) -> Option<String> {
         self.inner.lock().expect("fake herdr lock").focused.clone()
-    }
-
-    pub fn exited(&self) -> Vec<String> {
-        self.inner.lock().expect("fake herdr lock").exited.clone()
     }
 
     pub fn max_list_inflight(&self) -> u32 {
@@ -686,7 +680,6 @@ impl HerdrPort for FakeHerdr {
         self.record("plugin.pane.close", pane_id.as_str());
         let mut inner = self.inner.lock().expect("fake herdr lock");
         inner.panes.retain(|pane| pane.pane_id != pane_id.0);
-        inner.exited.push(pane_id.0.clone());
         for layout in inner.layouts.values_mut() {
             layout.panes.retain(|pane| pane.pane_id != pane_id.0);
         }

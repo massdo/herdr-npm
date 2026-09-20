@@ -56,22 +56,7 @@ fn assert_literal(shell: &str, script: &str) {
     install_fake_manager(&bin);
     let invocation = run_invocation(PackageManager::Npm, script);
     let argv = run_with_shell(shell, &invocation, &bin, &argv_file);
-    assert_eq!(
-        argv.get(1).map(String::as_str),
-        Some("run"),
-        "{shell} {argv:?}"
-    );
-    assert_eq!(
-        argv.get(2).map(String::as_str),
-        Some("--"),
-        "{shell} {argv:?}"
-    );
-    assert_eq!(
-        argv.get(3).map(String::as_str),
-        Some(script),
-        "{shell} {argv:?}"
-    );
-    assert_eq!(argv.len(), 4, "{shell} {argv:?}");
+    assert_eq!(&argv[1..], ["run", "--", script], "{shell}: {argv:?}");
     fs::remove_dir_all(&root).ok();
 }
 
@@ -115,63 +100,35 @@ fn zsh_forwards_script_names_literally() {
     }
 }
 
-#[test]
-fn real_npm_sees_dashed_names_as_scripts_when_present() {
-    if Command::new("npm").arg("--version").status().is_err() {
-        return;
-    }
+fn assert_real_manager(manager: &str) {
     let root = temp_dir();
     fs::write(
         root.join("package.json"),
-        r#"{"name":"argv-npm","scripts":{"--prod":"echo prod","-dev":"echo dev","test watch":"echo tw"}}"#,
+        r#"{"name":"argv-test","scripts":{"--prod":"echo prod","-dev":"echo dev","test watch":"echo tw"}}"#,
     )
     .unwrap();
     for script in ["--prod", "-dev", "test watch"] {
-        let output = Command::new("npm")
-            .args(["run", "--", script, "--dry-run"])
+        let output = Command::new(manager)
+            .args(["run", "--", script])
             .current_dir(&root)
             .output()
             .unwrap();
-        // npm may not support --dry-run on run; fall back to checking `npm run -- <name>` exits 0
-        // because the script exists. Capture combined output for diagnosis.
-        if !output.status.success() {
-            let output = Command::new("npm")
-                .args(["run", "--", script])
-                .current_dir(&root)
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "npm run -- {script:?} failed: stdout={} stderr={}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        assert!(
+            output.status.success(),
+            "{manager} run -- {script:?}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    fs::remove_dir_all(&root).ok();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn real_npm_sees_dashed_names_as_scripts_when_present() {
+    assert_real_manager("npm");
 }
 
 #[test]
 fn real_pnpm_sees_dashed_names_as_scripts_when_present() {
-    if Command::new("pnpm").arg("--version").status().is_err() {
-        return;
-    }
-    let root = temp_dir();
-    fs::write(
-        root.join("package.json"),
-        r#"{"name":"argv-pnpm","scripts":{"--prod":"echo prod"}}"#,
-    )
-    .unwrap();
-    let output = Command::new("pnpm")
-        .args(["run", "--", "--prod"])
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "pnpm run -- --prod failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    fs::remove_dir_all(&root).ok();
+    assert_real_manager("pnpm");
 }

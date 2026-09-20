@@ -79,6 +79,6 @@ The restored column is inert (session token `herdr_npm_sidebar=v1` is gone). Clo
 ## Validate
 
 ```sh
-sh plugins/herdr-npm/scripts/check.sh all   # offline, not @e2e
+sh plugins/herdr-npm/scripts/check.sh all   # Rust + Cucumber offline
 sh plugins/herdr-npm/scripts/e2e.sh         # isolated Herdr + PTY, macOS or Linux
 ```

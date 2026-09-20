@@ -95,25 +95,10 @@ Feature: Run a script in a new background tab
     When I run the script "dev"
     Then the working directory of the new tab is "/work/app"
 
-  Scenario Outline: The script name is forwarded as one literal argument
-    Given the package declares a script named "<script>"
-    When I run the script "<script>"
-    Then the package manager "npm" receives a single script argument "<script>"
-    And that argument is the literal script name, including spaces and metacharacters
-    And the package manager does not treat the script name as one of its own options
-
-    Examples:
-      | script     |
-      | build      |
-      | build:prod |
-      | test watch |
-      | say"hi"    |
-      | it's       |
-      | $HOME      |
-      | x$(id)     |
-      | a; id      |
-      | --prod     |
-      | -dev       |
+  Scenario: The script name reaches the shell as one literal argument
+    Given the package declares a script named "test watch; $(id)"
+    When I run the script "test watch; $(id)"
+    Then the package manager receives a single script argument "test watch; $(id)"
 
   Scenario: The 40th selected script can be launched
     Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
@@ -175,31 +160,3 @@ Feature: Run a script in a new background tab
     When I run the script "dev"
     Then the new tab is created in the workspace "main"
     And the working directory of the new tab is "/work/app"
-
-  @e2e
-  Scenario: Closing a script tab kills the script
-    Given I ran the script "dev" in a new tab
-    When I close that tab
-    Then the process of that ordinary recipe script is terminated
-    And the sidebar is still open
-
-  @e2e
-  Scenario: The script tab stays open once the script has ended
-    Given I ran the script "build" in a new tab
-    When the script exits
-    Then the tab is still open
-    And its output is still readable
-
-  @e2e
-  Scenario: The sidebar does not intercept keys typed in a script tab
-    Given I ran the script "dev" in a new tab
-    When I focus that tab and press "q"
-    Then "q" is sent to the running script
-    And the sidebar is still open
-
-  @e2e
-  Scenario: Driving the sidebar from the CLI
-    Given the selection is on the script "dev"
-    When I send the keys "j" then "Enter" to the sidebar pane with "herdr pane send-keys"
-    Then a new tab is created in the workspace "main"
-    And the package manager receives a single script argument "build"

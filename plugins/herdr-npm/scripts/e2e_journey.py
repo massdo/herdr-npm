@@ -1,154 +1,226 @@
 #!/usr/bin/env python3
-"""PTY-driven journey: toggle, list, click, launch, observe argv/cwd, close."""
+"""One sequential journey through an isolated, attached Herdr session."""
 
 import json
 import os
+import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 
-def env(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise SystemExit(f"{name} is required")
-    return value
+def env(name):
+    return os.environ[f"HERDR_NPM_E2E_{name}"]
 
 
-def herdr(*args: str) -> subprocess.CompletedProcess[str]:
-    cmd = ["herdr", "--session", env("HERDR_NPM_E2E_SESSION"), *args]
-    try:
-        return subprocess.run(
-            cmd,
-            check=False,
-            text=True,
-            capture_output=True,
-            timeout=10,
-            env=os.environ,
-        )
-    except subprocess.TimeoutExpired as error:
-        raise SystemExit(f"herdr {args} timed out: {error}") from error
+def herdr(*args):
+    result = subprocess.run(
+        ["herdr", "--session", env("SESSION"), *args],
+        text=True, capture_output=True, timeout=10,
+    )
+    assert result.returncode == 0, f"herdr {args}: {result.stdout}{result.stderr}"
+    return result.stdout
 
 
-def herdr_json(*args: str) -> dict:
-    proc = herdr(*args)
-    if proc.returncode != 0:
-        raise SystemExit(f"herdr {args} failed: {proc.stdout}{proc.stderr}")
-    return json.loads(proc.stdout)
+def data(*args):
+    return json.loads(herdr(*args))["result"]
 
 
-def ctl(line: str) -> None:
-    path = env("HERDR_NPM_E2E_PTY_CTL")
-    payload = (line + "\n").encode()
-    deadline = time.time() + 5
-    last_error: OSError | None = None
-    while time.time() < deadline:
+def wait(predicate, message, timeout=15):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.1)
+    raise AssertionError(message)
+
+
+def panes():
+    return data("pane", "list")["panes"]
+
+
+def tabs():
+    return data("tab", "list")["tabs"]
+
+
+def is_sidebar(pane):
+    return (pane.get("tokens") or {}).get("herdr_npm_sidebar") == "v1"
+
+
+def is_explorer(pane):
+    return "herdr-sidebar-explorer" in (pane.get("tokens") or {}) or pane.get("label") == "Sidebar"
+
+
+def sidebar():
+    return next((p for p in panes() if is_sidebar(p)), None)
+
+
+def read(pane):
+    return herdr("pane", "read", pane, "--source", "visible", "--format", "text")
+
+
+def focus(pane):
+    with socket.socket(socket.AF_UNIX) as stream:
+        stream.settimeout(10)
+        stream.connect(env("SOCKET"))
+        request = {"id": "focus", "method": "pane.focus", "params": {"pane_id": pane}}
+        stream.sendall((json.dumps(request) + "\n").encode())
+        response = json.loads(stream.makefile().readline())
+        assert "error" not in response, response
+
+
+def keys(pane, *keys):
+    herdr("pane", "send-keys", pane, *keys)
+
+
+def toggle():
+    herdr("plugin", "action", "invoke", "herdr-npm.toggle")
+
+
+def open_sidebar(working):
+    focus(working)
+    toggle()
+    pane = wait(sidebar, "sidebar did not open")["pane_id"]
+    wait(lambda: "h/l scroll" in read(pane), "catalogue did not render")
+    return pane
+
+
+def shortcut():
+    # A real prefix chord through the attached Herdr client.
+    for raw in ["02", "1b5b3131353b3275"]:
+        fd = os.open(env("PTY_CTL"), os.O_WRONLY | os.O_NONBLOCK)
         try:
-            fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
-            try:
-                os.write(fd, payload)
-                return
-            finally:
-                os.close(fd)
-        except OSError as error:
-            last_error = error
-            time.sleep(0.05)
-    raise SystemExit(f"pty ctl {line!r} failed: {last_error}")
+            os.write(fd, f"key {raw}\n".encode())
+        finally:
+            os.close(fd)
+        time.sleep(0.1)
 
 
-def wait(predicate, timeout: float = 8.0, message: str = "journey timed out") -> None:
-    start = time.time()
-    while time.time() - start < timeout:
-        if predicate():
-            return
-        time.sleep(0.15)
-    raise SystemExit(message)
+def launch(npm, script, click=False):
+    argv_file = Path(env("ARGV"))
+    argv_file.unlink(missing_ok=True)
+    before = {t["tab_id"] for t in tabs()}
+    if click:
+        herdr("pane", "send-text", npm, "\x1b[<0;5;3M\x1b[<0;5;3m")
+    else:
+        keys(npm, "j")
+        # The command footer, not a row anywhere in the list, proves selection.
+        def build_selected():
+            lines = read(npm).splitlines()
+            return any(i > 0 and "h/l scroll" in line and "vite build" in lines[i-1]
+                       for i, line in enumerate(lines))
+        wait(build_selected, "j did not select build")
+        keys(npm, "Enter")
+    wait(argv_file.is_file, f"{script} did not invoke npm")
+    wait(lambda: any(t["tab_id"] not in before for t in tabs()), "no new tab")
+    time.sleep(0.2)  # Process mouse release before checking that it did not relaunch.
+    created = [t for t in tabs() if t["tab_id"] not in before]
+    assert len(created) == 1, created
+    tab = created[0]
+    assert tab["label"] == f"npm run -- {script}" and not tab["focused"], tab
+    assert json.loads(argv_file.read_text())[1:] == ["run", "--", script]
+    # herdr-sidebar also opens an explorer in new tabs: select the ordinary PTY.
+    pane = wait(lambda: next((p for p in panes() if p["tab_id"] == tab["tab_id"]
+                             and not is_explorer(p) and not is_sidebar(p)), None),
+                "script PTY not found")
+    assert Path(pane["cwd"]).resolve() == Path(env("FIXTURE")).resolve(), pane
+    return tab["tab_id"], pane["pane_id"]
 
 
-def panes() -> list[dict]:
-    return herdr_json("pane", "list")["result"]["panes"]
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
 
 
-def sidebar() -> dict | None:
-    for pane in panes():
-        tokens = pane.get("tokens") or {}
-        if tokens.get("herdr_npm_sidebar") == "v1":
-            return pane
-    return None
+def main():
+    xdg = Path(env("XDG")).resolve()
+    assert env("SESSION").startswith("herdr-npm-e2e-")
+    assert Path(env("SOCKET")).resolve().is_relative_to(xdg)
+    assert Path(env("CONFIG")).resolve().is_relative_to(xdg)
+    assert os.environ["HERDR_SOCKET_PATH"] == env("SOCKET")
+    assert xdg != Path.home() / ".config"
 
+    # Open the real explorer once; do not race its hooks with layout resets.
+    herdr("plugin", "action", "invoke", "herdr-sidebar.show-explorer")
+    explorer = wait(lambda: next((p for p in panes() if is_explorer(p)), None),
+                    "explorer did not open")["pane_id"]
+    working = next(p["pane_id"] for p in panes() if not is_explorer(p))
+    before = data("pane", "layout", "--pane", explorer)["layout"]["panes"]
+    explorer_rect = next(p["rect"] for p in before if p["pane_id"] == explorer)
+    npm = open_sidebar(working)
+    layout = data("pane", "layout", "--pane", npm)["layout"]["panes"]
+    rects = {p["pane_id"]: p["rect"] for p in layout}
+    assert len(layout) == len(before) + 1, layout
+    assert rects[explorer] == explorer_rect, rects
+    assert rects[npm]["x"] >= explorer_rect["x"] + explorer_rect["width"] - 1, rects
+    assert rects[working]["x"] > rects[npm]["x"], rects
+    print("explorer_docking_ok", flush=True)
 
-def click_first_script(pane_id: str) -> None:
-    # A single SGR down/up pair reaches the real plugin PTY at its first row.
-    result = herdr("pane", "send-text", pane_id, "\x1b[<0;5;3M\x1b[<0;5;3m")
-    if result.returncode != 0:
-        raise SystemExit(f"mouse input failed: {result.stdout}{result.stderr}")
+    dev_tab, dev_pane = launch(npm, "dev", click=True)
+    wait(lambda: "VITE_HOLD_START" in read(dev_pane), "dev output missing")
+    pid = int(Path(env("HOLD") + ".pid").read_text())
+    assert pid_alive(pid), "dev exited before close"
+    focus(dev_pane)
+    keys(dev_pane, "q")
+    wait(lambda: Path(env("HOLD")).is_file() and "q" in Path(env("HOLD")).read_text(),
+         "q did not reach dev")
+    assert sidebar(), "q in dev closed the sidebar"
+    herdr("tab", "close", dev_tab)
+    wait(lambda: not pid_alive(pid), "closing dev tab left its process alive")
+    assert sidebar(), "closing dev tab closed the sidebar"
+    print("click_argv_cwd_and_process_lifecycle_ok", flush=True)
 
+    focus(npm)
+    build_tab, build_pane = launch(npm, "build")
+    wait(lambda: "VITE_BUILD_OK" in read(build_pane), "build output missing")
+    build_pid = int(Path(env("HOLD") + ".pid").read_text())
+    wait(lambda: not pid_alive(build_pid), "build did not exit")
+    assert any(t["tab_id"] == build_tab for t in tabs()), "build tab disappeared"
+    assert "TSC_OK" in read(build_pane), "build output not retained"
+    herdr("tab", "close", build_tab)
+    print("keyboard_launch_and_retained_output_ok", flush=True)
 
-def toggle_shortcut() -> None:
-    ctl("key 02")  # ctrl+b (the Herdr prefix)
-    time.sleep(0.1)
-    ctl("key 1b5b3131353b3275")  # CSI 115;2u: Shift+S, including its modifier
+    focus(npm)
+    shortcut()
+    wait(lambda: sidebar() is None, "shortcut did not close sidebar")
+    shortcut()
+    npm = wait(sidebar, "shortcut did not reopen sidebar")["pane_id"]
+    wait(lambda: "h/l scroll" in read(npm), "reopened sidebar not ready")
+    keys(npm, "q")
+    wait(lambda: all(p["pane_id"] != npm for p in panes()), "q did not close sidebar")
+    print("shortcut_and_q_ok", flush=True)
 
-
-def main() -> int:
-    print("journey_start", flush=True)
-    fixture = Path(env("HERDR_NPM_E2E_FIXTURE"))
-    argv_file = Path(env("HERDR_NPM_E2E_ARGV"))
-    if argv_file.exists():
-        argv_file.unlink()
-
-    if sidebar() is None:
-        herdr_json("plugin", "action", "invoke", "herdr-npm.toggle")
-        wait(lambda: sidebar() is not None)
-
-    npm = sidebar()
-    assert npm is not None
-    text = herdr("pane", "read", npm["pane_id"], "--source", "visible", "--format", "text").stdout
-    if "dev" not in text or "build" not in text:
-        raise SystemExit(f"catalogue missing scripts:\n{text}")
-
-    before_tabs = {tab["tab_id"] for tab in herdr_json("tab", "list")["result"]["tabs"]}
-    # Click once in the plugin PTY; pre-existing script tabs cannot satisfy this check.
-    click_first_script(npm["pane_id"])
-    wait(argv_file.is_file, message="click did not invoke the package manager")
-    wait(lambda: len(herdr_json("tab", "list")["result"]["tabs"]) > len(before_tabs),
-         message="click did not create a new tab")
-    time.sleep(0.2)  # Let the release event be processed before checking no second launch.
-    tabs = herdr_json("tab", "list")["result"]["tabs"]
-    created = [tab for tab in tabs if tab["tab_id"] not in before_tabs]
-    if len(created) != 1:
-        raise SystemExit(f"one click must create exactly one tab: {created}")
-    if created[0].get("label") != "npm run -- dev":
-        raise SystemExit(f"click selected the wrong script: {created}")
-    if created[0].get("focused") is True:
-        raise SystemExit("script tab stole the focus")
-    argv = json.loads(argv_file.read_text())
-    if argv[1:] != ["run", "--", "dev"]:
-        raise SystemExit(f"unexpected argv {argv}")
-
-    script_pane = [
-        pane
-        for pane in panes()
-        if pane.get("tab_id") == created[-1]["tab_id"]
-    ][0]
-    cwd = script_pane.get("cwd") or ""
-    if Path(cwd).resolve() != fixture.resolve():
-        raise SystemExit(f"cwd {cwd} is not the fixture {fixture}")
-
-    # The portable shortcut must toggle both ways through the attached Herdr client.
-    herdr_json("plugin", "pane", "focus", npm["pane_id"])
-    toggle_shortcut()
-    wait(lambda: sidebar() is None, message="prefix+shift+s did not close the sidebar")
-    toggle_shortcut()
-    wait(lambda: sidebar() is not None, message="prefix+shift+s did not reopen the sidebar")
-
-    print("journey_ok")
-    print(f"tabs={len(herdr_json('tab', 'list')['result']['tabs'])}")
-    print(f"cwd={cwd}")
-    print("shortcut_toggle_ok")
-    return 0
+    npm = open_sidebar(working)
+    herdr("session", "stop", env("SESSION"))
+    wait(lambda: not Path(env("SOCKET")).exists(), "server did not stop")
+    with open(env("SERVER_LOG"), "a") as log:
+        server = subprocess.Popen(["herdr", "--session", env("SESSION"), "server"],
+                                  stdout=log, stderr=log)
+    Path(env("SERVER_PID")).write_text(str(server.pid))
+    wait(lambda: Path(env("SOCKET")).is_socket(), "server did not restart")
+    restored = wait(lambda: next((p for p in panes() if p["pane_id"] == npm), None),
+                    "sidebar pane not restored")
+    assert not is_sidebar(restored), restored
+    assert sidebar() is None, "plugin automatically replaced restored pane"
+    herdr("pane", "close", npm)
+    assert open_sidebar(working) != npm, "inert pane reused"
+    print("restart_manual_recovery_ok\njourney_ok", flush=True)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        main()
+    except Exception:
+        # Preserve useful CI evidence before the shell removes the isolated profile.
+        print("== failure panes ==", flush=True)
+        try:
+            for pane in panes():
+                print(pane, flush=True)
+                print(read(pane["pane_id"]), flush=True)
+        except Exception as error:
+            print(f"diagnostics unavailable: {error}", flush=True)
+        raise

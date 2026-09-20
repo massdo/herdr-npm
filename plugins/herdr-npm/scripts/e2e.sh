@@ -1,17 +1,15 @@
 #!/bin/sh
-# Isolated Herdr recipe for herdr-npm @e2e + PTY journey.
+# Isolated Herdr recipe for herdr-npm PTY journey.
 # Never stops the user default session. Never writes ~/.config/herdr/config.toml.
 set -eu
 
 PLUGIN_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-REPO_DIR=$(CDPATH= cd -- "$PLUGIN_DIR/../.." && pwd)
 RUN_ID=$$
 SESSION="herdr-npm-e2e-${RUN_ID}"
 TMP=$(mktemp -d /tmp/hne.XXXXXX)
 XDG="$TMP/xdg"
 CONFIG="$XDG/herdr/config.toml"
 FIXTURE="$TMP/work/app"
-FS_ROOT="$TMP"
 BIN="$TMP/bin"
 HOLD="$TMP/hold.log"
 ARGV="$TMP/argv.json"
@@ -23,11 +21,9 @@ PTY_CTL="$TMP/pty.ctl"
 PTY_READY="$TMP/pty.ready"
 ATTACH="$PLUGIN_DIR/scripts/pty_attach.py"
 
-export HERDR_NPM_E2E=1
 export HERDR_NPM_E2E_SESSION="$SESSION"
 export HERDR_NPM_E2E_XDG="$XDG"
 export HERDR_NPM_E2E_CONFIG="$CONFIG"
-export HERDR_NPM_E2E_FS_ROOT="$FS_ROOT"
 export HERDR_NPM_E2E_FIXTURE="$FIXTURE"
 export HERDR_NPM_E2E_HOLD="$HOLD"
 export HERDR_NPM_E2E_ARGV="$ARGV"
@@ -37,7 +33,6 @@ export HERDR_NPM_E2E_CLIENT_PID="$CLIENT_PID_FILE"
 export HERDR_NPM_E2E_CLIENT_LOG="$CLIENT_LOG"
 export HERDR_NPM_E2E_PTY_CTL="$PTY_CTL"
 export HERDR_NPM_E2E_PTY_READY="$PTY_READY"
-export HERDR_NPM_E2E_ATTACH="$ATTACH"
 export HERDR_NPM_E2E_ROWS=40
 export HERDR_NPM_E2E_COLS=120
 export HERDR_PLUGIN_STATE_DIR="$TMP/state"
@@ -80,19 +75,11 @@ USER_CFG="${HOME}/.config/herdr/config.toml"
 mkdir -p "$XDG/herdr" "$FIXTURE" "$BIN" "$HERDR_PLUGIN_STATE_DIR"
 
 REAL_NPM=$(command -v npm)
-REAL_PNPM=$(command -v pnpm || true)
-export HERDR_NPM_E2E_REAL_NPM="$REAL_NPM"
-if [ -n "$REAL_PNPM" ]; then
-  export HERDR_NPM_E2E_REAL_PNPM="$REAL_PNPM"
-fi
-
 cat > "$BIN/herdr-e2e-shell" <<EOF
 #!/bin/sh
 export PATH="$BIN:\$PATH"
 export HERDR_NPM_E2E_ARGV="$ARGV"
 export HERDR_NPM_E2E_HOLD="$HOLD"
-export HERDR_NPM_E2E_REAL_NPM="$REAL_NPM"
-export HERDR_NPM_E2E_REAL_PNPM="${REAL_PNPM:-}"
 exec /bin/sh "\$@"
 EOF
 chmod +x "$BIN/herdr-e2e-shell"
@@ -133,19 +120,6 @@ with open(path, "w", encoding="utf-8") as handle:
 real = os.environ.get("HERDR_NPM_E2E_REAL_NPM") or r"$REAL_NPM"
 os.execv(real, [real, *sys.argv[1:]])
 PY
-if [ -n "$REAL_PNPM" ]; then
-  cat > "$BIN/pnpm" <<PY
-#!/usr/bin/env python3
-import json, os, sys
-path = os.environ.get("HERDR_NPM_E2E_ARGV") or r"$ARGV"
-with open(path, "w", encoding="utf-8") as handle:
-    json.dump(sys.argv, handle)
-real = os.environ.get("HERDR_NPM_E2E_REAL_PNPM") or r"$REAL_PNPM"
-if not real:
-    sys.exit(1)
-os.execv(real, [real, *sys.argv[1:]])
-PY
-fi
 cat > "$BIN/vite" <<PY
 #!/usr/bin/env python3
 import os, signal, sys, termios, tty
@@ -180,10 +154,6 @@ cat > "$BIN/tsc" <<'PY'
 print("TSC_OK")
 PY
 chmod +x "$BIN"/herdr-e2e-shell "$BIN"/npm "$BIN"/vite "$BIN"/tsc
-if [ -f "$BIN/pnpm" ]; then
-  chmod +x "$BIN/pnpm"
-fi
-
 export PATH="$BIN:$PATH"
 
 echo "== build plugin =="
@@ -238,6 +208,10 @@ fi
 herdr --session "$SESSION" plugin list
 herdr --session "$SESSION" config check
 
+cat > "$FIXTURE/package.json" <<'JSON'
+{"name":"app","scripts":{"dev":"vite","build":"tsc && vite build","test":"echo TEST_OK"}}
+JSON
+
 echo "== workspace =="
 herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label e2e --no-focus >/dev/null
 
@@ -247,11 +221,6 @@ echo "== attach PTY client =="
 python3 "$ATTACH" >"$TMP/attach.out" 2>"$TMP/attach.err" &
 echo $! >"$CLIENT_PID_FILE"
 sleep 0.4
-
-echo "== cucumber @e2e =="
-cd "$REPO_DIR"
-cargo test --manifest-path "$PLUGIN_DIR/Cargo.toml" --test features -- --tags @e2e
-echo "cucumber_e2e_exit=0"
 
 echo "== PTY journey =="
 i=0

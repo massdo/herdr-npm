@@ -9,7 +9,6 @@ use herdr_npm::domain::CWD_FALLBACK_NOTE;
 use serde_json::{Map, Value, json};
 use unicode_width::UnicodeWidthStr;
 
-use crate::support::e2e;
 use crate::support::tui;
 use crate::support::world::BddWorld;
 
@@ -18,11 +17,7 @@ fn ensure_dir(path: &Path) {
 }
 
 fn write_package(world: &mut BddWorld, virt: &str, body: &Value) {
-    let dir = if e2e::active() {
-        e2e::fixture()
-    } else {
-        world.map_path(virt)
-    };
+    let dir = world.map_path(virt);
     ensure_dir(&dir);
     fs::write(
         dir.join("package.json"),
@@ -160,20 +155,6 @@ fn set_start(world: &mut BddWorld, virt: &str) {
     ensure_dir(&real);
     world.start_cwd = Some(real);
     world.tui_wanted = true;
-}
-
-fn select_named(world: &mut BddWorld, name: &str) {
-    let index = {
-        let app = require_app(world);
-        app.scripts()
-            .iter()
-            .position(|script| script.name == name)
-            .unwrap_or_else(|| panic!("script {name} is not listed"))
-    };
-    if let Some(app) = world.app.as_mut() {
-        app.select_index(index);
-    }
-    tui::draw(world);
 }
 
 fn assert_no_launch(world: &mut BddWorld) {
@@ -413,7 +394,7 @@ async fn opened_then_closed(world: &mut BddWorld, path: String) {
 #[given(regex = r#"^the sidebar is open with the selection on the script "([^"]+)"$"#)]
 async fn open_with_selection(world: &mut BddWorld, name: String) {
     tui::open_sidebar(world);
-    select_named(world, &name);
+    tui::select_named(world, &name);
 }
 
 #[given("the sidebar is open with the 40th script selected and scrolled into view")]
@@ -526,7 +507,7 @@ async fn press_up(world: &mut BddWorld) {
 
 #[when(regex = r#"^I move the selection to the script "([^"]+)"$"#)]
 async fn move_to_script(world: &mut BddWorld, name: String) {
-    select_named(world, &name);
+    tui::select_named(world, &name);
 }
 
 #[when("I move the selection to the 40th script")]
@@ -540,7 +521,7 @@ async fn move_to_fortieth(world: &mut BddWorld) {
 
 #[when(regex = r#"^the selection moves to the script "([^"]+)"$"#)]
 async fn selection_moves(world: &mut BddWorld, name: String) {
-    select_named(world, &name);
+    tui::select_named(world, &name);
 }
 
 #[when(regex = r#"^the TestBackend interior grows to (\d+) columns by (\d+) rows$"#)]

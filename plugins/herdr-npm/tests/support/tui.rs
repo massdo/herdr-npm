@@ -88,7 +88,6 @@ pub fn open_sidebar(world: &mut BddWorld) {
 pub fn snapshot(world: &mut BddWorld) {
     if let Some(app) = world.app.as_ref() {
         world.prev_footer_offset = app.footer_offset;
-        world.prev_selected = app.selected;
     }
 }
 
@@ -199,5 +198,20 @@ pub fn launch_pending(world: &mut BddWorld) {
     };
     herdr_npm::adapters::tui::flush_intents(app, &world.herdr);
     world.last_error = app.launch_error.clone();
+    draw(world);
+}
+
+pub fn select_named(world: &mut BddWorld, name: &str) {
+    let index = world
+        .app
+        .as_ref()
+        .expect("sidebar")
+        .scripts()
+        .iter()
+        .position(|script| script.name == name)
+        .unwrap_or_else(|| panic!("script {name} is not listed"));
+    if let Some(app) = world.app.as_mut() {
+        app.select_index(index);
+    }
     draw(world);
 }

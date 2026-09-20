@@ -9,18 +9,13 @@ use herdr_npm::domain::ids::PaneId;
 use herdr_npm::domain::pane::{LayoutRect, OriginContext};
 
 use super::fake_herdr::FakeHerdr;
-use super::fake_project::FakeProject;
 
 #[derive(Debug, World)]
 pub struct BddWorld {
     pub herdr: FakeHerdr,
-    #[allow(dead_code)]
-    pub project: FakeProject,
     pub origin: Option<OriginContext>,
     pub last_error: Option<AppError>,
     pub opened_pane: Option<PaneId>,
-    pub closed_pane: Option<PaneId>,
-    pub plugin_id: Option<String>,
     pub lock_dir: PathBuf,
     pub fs_root: PathBuf,
     pub confirmed: bool,
@@ -30,7 +25,6 @@ pub struct BddWorld {
     pub concurrent: Vec<Result<ToggleOutcome, AppError>>,
     pub recognised_ids: Vec<String>,
     pub foreign_pane: Option<String>,
-    pub package_json_reads: u32,
     pub foreground_cwd: Option<PathBuf>,
     pub start_cwd: Option<PathBuf>,
     pub backend_width: u16,
@@ -41,21 +35,12 @@ pub struct BddWorld {
     pub last_pkg: Option<String>,
     pub long_field: Option<String>,
     pub prev_footer_offset: usize,
-    pub prev_selected: usize,
     pub names_at_open: Vec<String>,
     pub tui_wanted: bool,
     pub auto_launch: bool,
     pub workspace_id: String,
     pub argv_file: PathBuf,
     pub fake_bin: PathBuf,
-    pub e2e_working_pane: Option<String>,
-    pub e2e_sidebar_pane: Option<String>,
-    pub e2e_explorer_pane: Option<String>,
-    pub e2e_script_tab: Option<String>,
-    pub e2e_script_pane: Option<String>,
-    pub e2e_script_pid: Option<i32>,
-    pub e2e_restored_pane: Option<String>,
-    pub e2e_tabs_before: Vec<String>,
 }
 
 impl Default for BddWorld {
@@ -72,12 +57,9 @@ impl Default for BddWorld {
         let _ = std::fs::create_dir_all(&fs_root);
         Self {
             herdr: FakeHerdr::default(),
-            project: FakeProject,
             origin: None,
             last_error: None,
             opened_pane: None,
-            closed_pane: None,
-            plugin_id: None,
             lock_dir,
             fs_root,
             confirmed: false,
@@ -87,7 +69,6 @@ impl Default for BddWorld {
             concurrent: Vec::new(),
             recognised_ids: Vec::new(),
             foreign_pane: None,
-            package_json_reads: 0,
             foreground_cwd: None,
             start_cwd: None,
             backend_width: 32,
@@ -98,21 +79,12 @@ impl Default for BddWorld {
             last_pkg: None,
             long_field: None,
             prev_footer_offset: 0,
-            prev_selected: 0,
             names_at_open: Vec::new(),
             tui_wanted: false,
             auto_launch: false,
             workspace_id: "main".into(),
             argv_file,
             fake_bin,
-            e2e_working_pane: None,
-            e2e_sidebar_pane: None,
-            e2e_explorer_pane: None,
-            e2e_script_tab: None,
-            e2e_script_pane: None,
-            e2e_script_pid: None,
-            e2e_restored_pane: None,
-            e2e_tabs_before: Vec::new(),
         }
     }
 }
@@ -127,5 +99,11 @@ impl BddWorld {
             Ok(rest) => format!("/{}", rest.display()),
             Err(_) => real.display().to_string(),
         }
+    }
+}
+
+impl Drop for BddWorld {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.lock_dir);
     }
 }

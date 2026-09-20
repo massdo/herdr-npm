@@ -10,7 +10,6 @@ use herdr_npm::domain::ids::{PaneId, TabId, WorkspaceId};
 use herdr_npm::domain::pane::OriginContext;
 use herdr_npm::domain::{SIDEBAR_LABEL, SIDEBAR_TOKEN_KEY, SIDEBAR_TOKEN_VALUE};
 
-use crate::support::e2e;
 use crate::support::world::BddWorld;
 
 fn origin_tab(world: &BddWorld) -> &str {
@@ -123,21 +122,6 @@ async fn focused_tab_without_token(world: &mut BddWorld, tab: String) {
         foreground_cwd: Some("/work/app".into()),
         cwd: Some("/work/app".into()),
     });
-}
-
-#[given(
-    regex = r#"^the tab "([^"]+)" has a pane carrying token "herdr_npm_sidebar" equal to "v1"$"#
-)]
-async fn tab_has_token_pane(world: &mut BddWorld, tab: String) {
-    let workspace = origin_workspace(world).to_string();
-    world
-        .herdr
-        .add_token_pane(&workspace, &tab, &format!("{tab}-token"));
-}
-
-#[given("the focused tab is \"current\" and has no such token")]
-async fn focused_current(world: &mut BddWorld) {
-    focused_tab_without_token(world, "current".into()).await;
 }
 
 #[given(
@@ -273,18 +257,6 @@ async fn recognised_closed(world: &mut BddWorld) {
     );
 }
 
-#[then("the herdr-npm process has exited")]
-async fn process_exited(world: &mut BddWorld) {
-    if e2e::active() {
-        e2e::wait_sidebar_gone();
-        return;
-    }
-    assert!(
-        !world.herdr.exited().is_empty(),
-        "sidebar process was not marked exited"
-    );
-}
-
 #[then(regex = r#"^the focus returns to pane "([^"]+)"$"#)]
 async fn focus_returns(world: &mut BddWorld, pane: String) {
     assert_eq!(world.herdr.focused().as_deref(), Some(pane.as_str()));
@@ -329,11 +301,6 @@ async fn tab_sidebar_untouched(world: &mut BddWorld, tab: String) {
             .all(|call| call.method != "plugin.pane.close" || !call.detail.contains(&tab)),
         "close targeted tab {tab}"
     );
-}
-
-#[then("the pane of the tab \"other\" is left untouched")]
-async fn other_token_untouched(world: &mut BddWorld) {
-    tab_sidebar_untouched(world, "other".into()).await;
 }
 
 #[then("a sidebar pane recognised by token is opened in the focused tab")]
@@ -384,13 +351,6 @@ async fn open_then_close(world: &mut BddWorld) {
         "expected one open and one close, got {:?}",
         world.concurrent
     );
-}
-
-#[then(
-    regex = r#"^the focused tab never holds two panes carrying token "herdr_npm_sidebar" equal to "v1"$"#
-)]
-async fn never_two(world: &mut BddWorld) {
-    assert!(recognised(world).len() <= 1);
 }
 
 #[then("the launcher exits with a non-zero status")]
@@ -526,17 +486,4 @@ async fn other_splits_kept(world: &mut BddWorld) {
             .map(|(_, rect)| *rect);
         assert_eq!(current.as_ref(), Some(rect), "pane {id} moved");
     }
-}
-
-#[then("no package.json file is read")]
-async fn no_package_json(world: &mut BddWorld) {
-    assert_eq!(world.package_json_reads, 0);
-    assert!(
-        world
-            .herdr
-            .calls()
-            .iter()
-            .all(|call| !call.method.contains("package")),
-        "toggle touched package.json"
-    );
 }

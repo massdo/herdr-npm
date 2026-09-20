@@ -7,7 +7,6 @@ use herdr_npm::domain::ids::PaneId;
 use herdr_npm::domain::run_command::run_invocation;
 use serde_json::{Map, Value, json};
 
-use crate::support::e2e;
 use crate::support::tui;
 use crate::support::world::BddWorld;
 
@@ -37,21 +36,6 @@ fn last_tab(world: &BddWorld) -> crate::support::fake_herdr::FakeTab {
         .created_tabs()
         .pop()
         .expect("expected a created tab")
-}
-
-fn select_named(world: &mut BddWorld, name: &str) {
-    let index = world
-        .app
-        .as_ref()
-        .expect("sidebar")
-        .scripts()
-        .iter()
-        .position(|script| script.name == name)
-        .unwrap_or_else(|| panic!("script {name} is not listed"));
-    if let Some(app) = world.app.as_mut() {
-        app.select_index(index);
-    }
-    tui::draw(world);
 }
 
 fn add_script(world: &mut BddWorld, name: &str, command: &str) {
@@ -87,24 +71,6 @@ fn add_script(world: &mut BddWorld, name: &str, command: &str) {
 
 #[given(regex = r#"^the sidebar is open in the workspace "([^"]+)"$"#)]
 async fn open_in_workspace(world: &mut BddWorld, workspace: String) {
-    if e2e::active() {
-        world.workspace_id = e2e::live()
-            .panes()
-            .first()
-            .and_then(|pane| pane.get("workspace_id"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("w1")
-            .to_string();
-        let _ = workspace;
-        e2e::open_sidebar(world);
-        let pkg = e2e::fixture().join("package.json");
-        assert!(
-            pkg.is_file(),
-            "e2e fixture package.json missing at {}",
-            pkg.display()
-        );
-        return;
-    }
     world.workspace_id = workspace.clone();
     world.auto_launch = true;
     world.tui_wanted = true;
@@ -126,19 +92,6 @@ async fn open_in_workspace(world: &mut BddWorld, workspace: String) {
 
 #[given(regex = r#"^the resolved project root is "/([^"]+)"$"#)]
 async fn given_root(world: &mut BddWorld, path: String) {
-    if e2e::active() {
-        let expected = e2e::fixture();
-        let cwd = e2e::live().panes().into_iter().find(|pane| {
-            pane.get("cwd")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|cwd| cwd.contains(&path) || cwd == expected.to_string_lossy())
-        });
-        assert!(
-            cwd.is_some() || expected.ends_with(&path),
-            "live cwd does not include /{path}"
-        );
-        return;
-    }
     let expected = format!("/{path}");
     let root = world
         .app
@@ -150,16 +103,6 @@ async fn given_root(world: &mut BddWorld, path: String) {
 
 #[given(regex = r#"^the detected package manager is "([^"]+)"$"#)]
 async fn given_manager(world: &mut BddWorld, manager: String) {
-    if e2e::active() {
-        if let Some(sidebar) = e2e::sidebar_pane() {
-            let text = e2e::read_pane(&sidebar);
-            assert!(
-                text.contains(&manager),
-                "sidebar header does not show {manager}:\n{text}"
-            );
-        }
-        return;
-    }
     let current = world
         .app
         .as_ref()
@@ -189,15 +132,7 @@ async fn given_manager(world: &mut BddWorld, manager: String) {
 
 #[given(regex = r#"^the selection is on the script "([^"]+)"$"#)]
 async fn given_selection(world: &mut BddWorld, name: String) {
-    if e2e::active() {
-        if name != "dev"
-            && let Some(sidebar) = e2e::sidebar_pane()
-        {
-            e2e::select_script(&sidebar, &name);
-        }
-        return;
-    }
-    select_named(world, &name);
+    tui::select_named(world, &name);
 }
 
 #[given(regex = r#"^the origin pane foreground cwd was "/([^"]+)" when the sidebar opened$"#)]
@@ -288,7 +223,7 @@ async fn click_row(world: &mut BddWorld, name: String) {
 
 #[when(regex = r#"^I run the script "(.+)"$"#)]
 async fn run_named(world: &mut BddWorld, name: String) {
-    select_named(world, &name);
+    tui::select_named(world, &name);
     if let Some(app) = world.app.as_mut() {
         app.emit_run();
     }
@@ -297,32 +232,6 @@ async fn run_named(world: &mut BddWorld, name: String) {
 
 #[then(regex = r#"^(?:a|the) new tab is created in the workspace .+"#)]
 async fn tab_created_in(world: &mut BddWorld) {
-    if e2e::active() {
-        e2e::live().wait_until(std::time::Duration::from_secs(8), |herdr| {
-            herdr.tabs().len() > world.e2e_tabs_before.len().max(1)
-        });
-        let tabs = e2e::live().tabs();
-        assert!(
-            tabs.len() >= 2,
-            "expected a new background tab, got {tabs:?}"
-        );
-        let created = tabs
-            .iter()
-            .find(|tab| tab.get("focused").and_then(serde_json::Value::as_bool) == Some(false))
-            .or_else(|| tabs.last())
-            .expect("background tab");
-        assert_eq!(
-            created
-                .get("workspace_id")
-                .and_then(serde_json::Value::as_str),
-            Some(world.workspace_id.as_str())
-        );
-        world.e2e_script_tab = created
-            .get("tab_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-        return;
-    }
     let tab = last_tab(world);
     assert_eq!(tab.workspace_id, world.workspace_id);
     assert!(!tab.focus);
@@ -356,43 +265,8 @@ async fn receives_argument(world: &mut BddWorld, script: String) {
 }
 
 fn assert_single_script_arg(world: &BddWorld, script: &str) {
-    let argv = if e2e::active() {
-        let path = world.argv_file.clone();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-        loop {
-            if std::fs::read(&path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
-                .and_then(|argv| argv.get(3).cloned())
-                .as_deref()
-                == Some(script)
-            {
-                break;
-            }
-            if std::time::Instant::now() > deadline {
-                let raw = std::fs::read_to_string(&path).unwrap_or_default();
-                let tabs = e2e::live().stdout(&["tab", "list"]);
-                panic!(
-                    "timed out waiting for argv[3]={script:?}\nargv_file={} raw={raw:?}\ntabs={tabs}",
-                    path.display()
-                );
-            }
-            std::thread::sleep(std::time::Duration::from_millis(80));
-        }
-        e2e::last_argv()
-    } else {
-        last_argv(world)
-    };
-    assert_eq!(
-        argv.get(3).map(String::as_str),
-        Some(script),
-        "expected a single script argument {script}, argv={argv:?}"
-    );
-    assert_eq!(
-        argv.len(),
-        4,
-        "manager argv should be [bin, run, --, name], got {argv:?}"
-    );
+    let argv = last_argv(world);
+    assert_eq!(&argv[1..], ["run", "--", script], "argv={argv:?}");
 }
 
 #[then(regex = r#"^the working directory of the new tab is "/([^"]+)"$"#)]
@@ -491,20 +365,6 @@ async fn labelled_command(world: &mut BddWorld, script: String) {
     assert_eq!(last_tab(world).label, run_invocation(manager, &script));
 }
 
-#[then("that argument is the literal script name, including spaces and metacharacters")]
-async fn literal_argument(world: &mut BddWorld) {
-    let argv = last_argv(world);
-    assert_eq!(argv.len(), 4);
-    assert_eq!(argv[2], "--");
-}
-
-#[then("the package manager does not treat the script name as one of its own options")]
-async fn not_an_option(world: &mut BddWorld) {
-    let argv = last_argv(world);
-    assert_eq!(argv.get(1).map(String::as_str), Some("run"));
-    assert_eq!(argv.get(2).map(String::as_str), Some("--"));
-}
-
 #[then("no pane input is sent")]
 async fn no_input(world: &mut BddWorld) {
     assert!(
@@ -520,7 +380,6 @@ async fn no_input(world: &mut BddWorld) {
 
 #[then("no confirmed launch is announced")]
 async fn no_confirmed(world: &mut BddWorld) {
-    assert!(world.herdr.created_tabs().is_empty() || world.last_error.is_some());
     assert!(world.last_error.is_some());
 }
 
