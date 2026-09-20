@@ -115,5 +115,5 @@ fn env_string(key: &str) -> Option<String> {
 }
 
 fn first_non_empty(values: &[Option<String>]) -> Option<String> {
-    values.iter().cloned().flatten().next()
+    values.iter().flatten().next().cloned()
 }

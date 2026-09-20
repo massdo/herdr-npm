@@ -1,6 +1,6 @@
 # Features herdr-npm V1
 
-Spécifications exécutables de la V1. Elles ne prouvent pas encore un plugin : le parsing et l’exécution arrivent avec le plugin.
+Spécifications exécutables de la V1. Le harnais Cucumber (`tests/features.rs`, `scripts/check.sh`) est livré avec le plugin : les steps manquants échouent, `@e2e` est exclu par défaut.
 
 ## Fixtures par défaut
 

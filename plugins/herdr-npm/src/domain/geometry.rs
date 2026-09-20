@@ -74,3 +74,78 @@ pub fn preferred_left_resize(layout: &LayoutSnapshot, pane_id: &str) -> Option<R
         amount: delta.abs(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::pane::{LayoutPane, LayoutRect, LayoutSplit};
+    use std::collections::BTreeMap;
+
+    fn pane(id: &str, tab: &str) -> PaneInfo {
+        PaneInfo {
+            pane_id: id.into(),
+            workspace_id: "w1".into(),
+            tab_id: tab.into(),
+            focused: false,
+            label: None,
+            title: None,
+            cwd: None,
+            foreground_cwd: None,
+            tokens: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn working_target_skips_explorer_and_picks_leftmost() {
+        let mut explorer = pane("w1:p-exp", "w1:t1");
+        explorer.label = Some("Sidebar".into());
+        let editor = pane("w1:p-ed", "w1:t1");
+        let panes = vec![explorer, editor];
+        let layout = LayoutSnapshot {
+            workspace_id: "w1".into(),
+            tab_id: "w1:t1".into(),
+            area: LayoutRect {
+                x: 0,
+                y: 0,
+                width: 120,
+                height: 40,
+            },
+            focused_pane_id: "w1:p-ed".into(),
+            panes: vec![
+                LayoutPane {
+                    pane_id: "w1:p-exp".into(),
+                    focused: false,
+                    rect: LayoutRect {
+                        x: 0,
+                        y: 0,
+                        width: 32,
+                        height: 40,
+                    },
+                },
+                LayoutPane {
+                    pane_id: "w1:p-ed".into(),
+                    focused: true,
+                    rect: LayoutRect {
+                        x: 32,
+                        y: 0,
+                        width: 88,
+                        height: 40,
+                    },
+                },
+            ],
+            splits: vec![LayoutSplit {
+                id: "s".into(),
+                direction: "right".into(),
+                ratio: 32.0 / 120.0,
+                rect: LayoutRect {
+                    x: 0,
+                    y: 0,
+                    width: 120,
+                    height: 40,
+                },
+            }],
+        };
+        let chosen = pick_working_target(&panes, &layout, &TabId("w1:t1".into())).unwrap();
+        assert_eq!(chosen.pane_id, "w1:p-ed");
+    }
+}
