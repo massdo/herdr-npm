@@ -91,17 +91,7 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
         .unwrap_or("");
     let footer = scroll_text(command, app.footer_offset, inner.width as usize);
     lines.push(Line::from(footer));
-    lines.push(Line::from("h/l scroll"));
-    for note in app.notes() {
-        if lines.len() < inner.height as usize {
-            lines.push(Line::from(note));
-        }
-    }
-    if let Some(error) = &app.launch_error
-        && lines.len() < inner.height as usize
-    {
-        lines.push(Line::from(error.to_string()));
-    }
+    lines.extend(app.status_lines().into_iter().map(Line::from));
     frame.render_widget(Paragraph::new(lines), inner);
 }
 

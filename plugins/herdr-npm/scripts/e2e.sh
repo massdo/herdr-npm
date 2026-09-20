@@ -100,6 +100,9 @@ chmod +x "$BIN/herdr-e2e-shell"
 cat > "$CONFIG" <<EOF
 onboarding = false
 
+[experimental]
+allow_nested = true
+
 [terminal]
 default_shell = "$BIN/herdr-e2e-shell"
 shell_mode = "non_login"
@@ -216,11 +219,6 @@ echo "e2e_socket=$SOCKET"
 echo "e2e_config=$CONFIG"
 echo "user_socket=$USER_SOCK"
 
-echo "== attach PTY client =="
-python3 "$ATTACH" >"$TMP/attach.out" 2>"$TMP/attach.err" &
-echo $! >"$CLIENT_PID_FILE"
-sleep 0.4
-
 echo "== link plugins =="
 herdr --session "$SESSION" plugin link "$PLUGIN_DIR" --enabled
 SIDEBAR_ROOT=${HERDR_SIDEBAR_ROOT:-}
@@ -242,6 +240,13 @@ herdr --session "$SESSION" config check
 
 echo "== workspace =="
 herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label e2e --no-focus >/dev/null
+
+echo "== attach PTY client =="
+# Attach only once the fixture workspace exists; otherwise Herdr creates a
+# default workspace in the checkout and the scenario reset keeps that one.
+python3 "$ATTACH" >"$TMP/attach.out" 2>"$TMP/attach.err" &
+echo $! >"$CLIENT_PID_FILE"
+sleep 0.4
 
 echo "== cucumber @e2e =="
 cd "$REPO_DIR"

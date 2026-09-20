@@ -7,36 +7,24 @@ use support::world::BddWorld;
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let explicit_tags = args.iter().any(|arg| {
-        arg == "--tags" || arg == "-t" || arg.starts_with("--tags=") || arg.starts_with("-t=")
-    });
-    if !explicit_tags && std::env::var_os("CUCUMBER_FILTER_TAGS").is_none() {
-        unsafe {
-            std::env::set_var("CUCUMBER_FILTER_TAGS", "not @e2e");
-        }
+    let mut cli =
+        cucumber::cli::Opts::<_, cucumber::runner::basic::Cli, _, cucumber::cli::Empty>::parsed();
+    if cli.tags_filter.is_none() {
+        cli.tags_filter = Some("not @e2e".parse().expect("default tag expression"));
     }
-    if e2e_selected(&args) {
-        if std::env::var("HERDR_NPM_E2E").ok().as_deref() != Some("1") {
-            eprintln!(
-                "@e2e requires HERDR_NPM_E2E=1 and the isolated Herdr recipe profile; refusing to mutate anything else"
-            );
-            std::process::exit(1);
-        }
+    if support::e2e::requested() {
         support::e2e::require_isolated();
+        // The CLI concurrency setting otherwise overrides the runner default.
+        cli.runner.concurrency = Some(1);
     }
 
-    // Parse real CLI (`--tags`, `CUCUMBER_FILTER_TAGS`). `with_default_cli()`
-    // would ignore both and always run every scenario.
     let cucumber = BddWorld::cucumber().fail_on_skipped();
-    let cucumber = if e2e_selected(&args) {
-        cucumber.max_concurrent_scenarios(1)
-    } else {
-        cucumber
-    };
+    let cucumber = cucumber.with_cli(cli);
     let writer = cucumber
-        .before(|feature, _, scenario, world| {
-            let tagged = has_e2e_tag(&scenario.tags) || has_e2e_tag(&feature.tags);
+        .before(|feature, rule, scenario, world| {
+            let tagged = has_e2e_tag(&scenario.tags)
+                || has_e2e_tag(&feature.tags)
+                || rule.is_some_and(|rule| has_e2e_tag(&rule.tags));
             Box::pin(async move {
                 if tagged {
                     support::e2e::prepare(world);
@@ -60,28 +48,6 @@ async fn main() {
     }
 }
 
-fn e2e_selected(args: &[String]) -> bool {
-    let from_args = args
-        .windows(2)
-        .any(|pair| matches!(pair[0].as_str(), "--tags" | "-t") && selects_e2e(&pair[1]))
-        || args.iter().any(|arg| {
-            arg.strip_prefix("--tags=")
-                .or_else(|| arg.strip_prefix("-t="))
-                .is_some_and(selects_e2e)
-        });
-    let from_env = std::env::var("CUCUMBER_FILTER_TAGS")
-        .ok()
-        .as_deref()
-        .is_some_and(selects_e2e);
-    from_args || from_env
-}
-
 fn has_e2e_tag(tags: &[String]) -> bool {
     tags.iter().any(|tag| tag == "e2e" || tag == "@e2e")
-}
-
-fn selects_e2e(expr: &str) -> bool {
-    expr.split_whitespace().any(|token| token == "@e2e")
-        && !expr.contains("not @e2e")
-        && !expr.contains("not(@e2e)")
 }

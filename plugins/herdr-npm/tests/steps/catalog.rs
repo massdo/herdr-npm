@@ -708,15 +708,9 @@ async fn shows_message(world: &mut BddWorld, message: String) {
             "start-cwd fallback was not recorded"
         );
     }
-    let app_message = require_app(world).error_message();
     assert!(
-        world.screen.contains(&message)
-            || app_message.as_deref() == Some(message.as_str())
-            || require_app(world)
-                .notes()
-                .iter()
-                .any(|note| note == &message),
-        "missing message {message:?}\napp={app_message:?}\nscreen:\n{}",
+        tui::shows_text(world, &message),
+        "missing message {message:?}\nscreen:\n{}",
         world.screen
     );
 }
@@ -920,7 +914,7 @@ async fn only_q_usable(world: &mut BddWorld) {
 #[then(regex = r#"^the message "([^"]+)" is gone$"#)]
 async fn message_gone(world: &mut BddWorld, message: String) {
     assert!(
-        !world.screen.contains(&message),
+        !tui::shows_text(world, &message),
         "message {message} still present:\n{}",
         world.screen
     );

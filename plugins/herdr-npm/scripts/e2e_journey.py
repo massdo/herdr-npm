@@ -78,26 +78,17 @@ def sidebar() -> dict | None:
     return None
 
 
-def sidebar_rect(pane_id: str) -> dict:
-    layout = herdr_json("pane", "layout", "--pane", pane_id)["result"]["layout"]
-    for pane in layout.get("panes") or []:
-        if pane.get("pane_id") == pane_id:
-            return pane.get("rect") or {}
-    return {}
-
-
 def click_first_script(pane_id: str) -> None:
-    rect = sidebar_rect(pane_id)
-    print(f"sidebar_rect={rect}", flush=True)
-    x = int(rect.get("x") or 0)
-    y = int(rect.get("y") or 0)
-    # SGR is 1-based. The first script sits under the pane border + header.
-    spots = [(x + dx, y + dy) for dy in (2, 3, 4, 5, 6) for dx in (3, 4, 8)]
-    spots.extend([(8, 3), (5, 4), (4, 3)])
-    for col, row in spots:
-        ctl(f"click {max(1, col)} {max(1, row)}")
-    # Pane-local mouse into the plugin PTY (real terminal, not the BDD TestBackend).
-    herdr("pane", "send-text", pane_id, "\x1b[<0;5;3M\x1b[<0;5;3m")
+    # A single SGR down/up pair reaches the real plugin PTY at its first row.
+    result = herdr("pane", "send-text", pane_id, "\x1b[<0;5;3M\x1b[<0;5;3m")
+    if result.returncode != 0:
+        raise SystemExit(f"mouse input failed: {result.stdout}{result.stderr}")
+
+
+def toggle_shortcut() -> None:
+    ctl("key 02")  # ctrl+b (the Herdr prefix)
+    time.sleep(0.1)
+    ctl("key 1b5b3131353b3275")  # CSI 115;2u: Shift+S, including its modifier
 
 
 def main() -> int:
@@ -117,28 +108,24 @@ def main() -> int:
     if "dev" not in text or "build" not in text:
         raise SystemExit(f"catalogue missing scripts:\n{text}")
 
-    # Click the first script row through the attached client PTY.
+    before_tabs = {tab["tab_id"] for tab in herdr_json("tab", "list")["result"]["tabs"]}
+    # Click once in the plugin PTY; pre-existing script tabs cannot satisfy this check.
     click_first_script(npm["pane_id"])
-    wait(
-        lambda: argv_file.is_file() or len(herdr_json("tab", "list")["result"]["tabs"]) >= 2,
-        message=f"click did not launch a script; tabs={herdr('tab', 'list').stdout}",
-    )
-
+    wait(argv_file.is_file, message="click did not invoke the package manager")
+    wait(lambda: len(herdr_json("tab", "list")["result"]["tabs"]) > len(before_tabs),
+         message="click did not create a new tab")
+    time.sleep(0.2)  # Let the release event be processed before checking no second launch.
     tabs = herdr_json("tab", "list")["result"]["tabs"]
-    if len(tabs) < 2:
-        raise SystemExit(f"click did not open a tab: {tabs}")
-    created = [tab for tab in tabs if tab.get("label", "").startswith("npm run --")]
-    if not created:
-        raise SystemExit(f"no labelled script tab: {tabs}")
-    if created[-1].get("focused") is True:
+    created = [tab for tab in tabs if tab["tab_id"] not in before_tabs]
+    if len(created) != 1:
+        raise SystemExit(f"one click must create exactly one tab: {created}")
+    if created[0].get("label") != "npm run -- dev":
+        raise SystemExit(f"click selected the wrong script: {created}")
+    if created[0].get("focused") is True:
         raise SystemExit("script tab stole the focus")
-
-    if argv_file.is_file():
-        argv = json.loads(argv_file.read_text())
-        if argv[1:4] not in (["run", "--", "dev"], ["run", "--", "hello"]):
-            # first visible script of the fixture is hello or dev
-            if not (len(argv) == 4 and argv[1] == "run" and argv[2] == "--"):
-                raise SystemExit(f"unexpected argv {argv}")
+    argv = json.loads(argv_file.read_text())
+    if argv[1:] != ["run", "--", "dev"]:
+        raise SystemExit(f"unexpected argv {argv}")
 
     script_pane = [
         pane
@@ -146,23 +133,20 @@ def main() -> int:
         if pane.get("tab_id") == created[-1]["tab_id"]
     ][0]
     cwd = script_pane.get("cwd") or ""
-    if str(fixture) not in cwd and fixture.name not in cwd:
+    if Path(cwd).resolve() != fixture.resolve():
         raise SystemExit(f"cwd {cwd} is not the fixture {fixture}")
 
-    # Shortcut: prefix+shift+s on Linux / when Ghostty is absent.
-    # ctrl+b then S
-    before = 1 if sidebar() else 0
-    ctl("key 0253")  # STX + 'S'
-    time.sleep(0.8)
-    # The chord may toggle closed; reopen with the CLI if needed so cleanup is stable.
-    if sidebar() is None:
-        herdr_json("plugin", "action", "invoke", "herdr-npm.toggle")
-        wait(lambda: sidebar() is not None)
+    # The portable shortcut must toggle both ways through the attached Herdr client.
+    herdr_json("plugin", "pane", "focus", npm["pane_id"])
+    toggle_shortcut()
+    wait(lambda: sidebar() is None, message="prefix+shift+s did not close the sidebar")
+    toggle_shortcut()
+    wait(lambda: sidebar() is not None, message="prefix+shift+s did not reopen the sidebar")
 
     print("journey_ok")
     print(f"tabs={len(herdr_json('tab', 'list')['result']['tabs'])}")
     print(f"cwd={cwd}")
-    print(f"shortcut_before_sidebar={before}")
+    print("shortcut_toggle_ok")
     return 0
 
 

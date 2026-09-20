@@ -146,6 +146,24 @@ Feature: Run a script in a new background tab
     And no pane input is sent
     And the catalogue is still usable
 
+  Scenario: A successful manual launch clears the previous launch error
+    Given sending input to its root pane times out
+    When I run the script "dev"
+    Then the sidebar shows the message "Script launch not confirmed"
+    When sending input succeeds again
+    And I run the script "build"
+    Then the message "Script launch not confirmed" is gone
+    And the package manager receives a single script argument "build"
+
+  Scenario: Clicking an error below a long catalogue does not launch a hidden row
+    Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
+    And the sidebar is open on that catalogue
+    And sending input to its root pane times out
+    When I press "Enter"
+    Then the sidebar shows the message "Script launch not confirmed"
+    When I left-click the launch error message
+    Then exactly 1 tab has been created in the workspace "main"
+
   Scenario: An empty command string is still forwarded
     Given the package declares a script named "noop" whose command is ""
     When I run the script "noop"

@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use unicode_width::UnicodeWidthChar;
 
 use crate::application::list_scripts::ListedScripts;
 use crate::domain::CWD_FALLBACK_NOTE;
@@ -73,8 +74,46 @@ impl SidebarApp {
     }
 
     pub fn list_height(&self) -> usize {
-        let h = self.inner.height.saturating_sub(3) as usize;
-        h.max(1)
+        (self.inner.height as usize)
+            .saturating_sub(2 + self.status_lines().len())
+            .max(1)
+    }
+
+    /// Reserve visible footer rows for launch errors and cwd fallback notices.
+    pub fn status_lines(&self) -> Vec<String> {
+        let messages: Vec<String> = self
+            .launch_error
+            .iter()
+            .map(ToString::to_string)
+            .chain(self.notes())
+            .collect();
+        if messages.is_empty() {
+            return vec!["h/l scroll".into()];
+        }
+        let mut lines = Vec::new();
+        for message in messages {
+            let mut line = String::new();
+            let mut cells = 0;
+            for ch in message.chars() {
+                let width = ch.width().unwrap_or(0);
+                if ch == '\n' || cells + width > self.inner.width.max(1) as usize {
+                    lines.push(std::mem::take(&mut line));
+                    cells = 0;
+                }
+                if ch != '\n' {
+                    line.push(ch);
+                    cells += width;
+                }
+            }
+            lines.push(line);
+        }
+        // Keep a header, one selectable script and the command line even in a small pane.
+        let available = self.inner.height.saturating_sub(3).max(1) as usize;
+        if lines.len() < available {
+            lines.insert(0, "h/l scroll".into());
+        }
+        lines.truncate(available);
+        lines
     }
 
     pub fn ensure_visible(&mut self) {
@@ -170,8 +209,7 @@ impl SidebarApp {
         if inner_y == 0 {
             return None;
         }
-        let footer_start = self.inner.height.saturating_sub(2);
-        if inner_y >= footer_start {
+        if inner_y as usize > self.list_height() {
             return None;
         }
         let list_y = inner_y.saturating_sub(1) as usize;

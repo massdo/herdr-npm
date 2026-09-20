@@ -211,10 +211,11 @@ async fn close_script_tab(world: &mut BddWorld) {
 
 #[then("the process of that ordinary recipe script is terminated")]
 async fn script_terminated(world: &mut BddWorld) {
-    if let Some(pid) = world.e2e_script_pid {
-        e2e::live().wait_until(Duration::from_secs(8), |_| !e2e::pid_alive(pid));
-        assert!(!e2e::pid_alive(pid), "pid {pid} is still alive");
-    }
+    let pid = world
+        .e2e_script_pid
+        .expect("recipe script PID must be known before closing its tab");
+    e2e::live().wait_until(Duration::from_secs(8), |_| !e2e::pid_alive(pid));
+    assert!(!e2e::pid_alive(pid), "pid {pid} is still alive");
     let tab = world.e2e_script_tab.clone().expect("script tab");
     e2e::live().wait_until(Duration::from_secs(8), |herdr| {
         !herdr.tabs().iter().any(|item| tab_id(item) == tab)
@@ -231,9 +232,7 @@ async fn wait_script_exit(world: &mut BddWorld) {
     let pane = world.e2e_script_pane.clone().expect("script pane");
     e2e::live().wait_until(Duration::from_secs(15), |_| {
         let text = e2e::read_pane(&pane);
-        text.contains("BUILD_DONE")
-            || text.contains("VITE_BUILD_OK")
-            || (text.contains("vite build") && text.contains('%'))
+        text.contains("BUILD_DONE") || text.contains("VITE_BUILD_OK")
     });
 }
 
@@ -251,9 +250,7 @@ async fn output_readable(world: &mut BddWorld) {
     let pane = world.e2e_script_pane.clone().expect("script pane");
     let text = e2e::read_pane(&pane);
     assert!(
-        text.contains("BUILD_DONE")
-            || text.contains("VITE_BUILD_OK")
-            || text.contains("vite build"),
+        text.contains("BUILD_DONE") || text.contains("VITE_BUILD_OK"),
         "script output missing in:\n{text}"
     );
 }
@@ -266,7 +263,6 @@ async fn focus_tab_press_q(world: &mut BddWorld) {
     e2e::live().wait_until(Duration::from_secs(8), |_| {
         e2e::read_pane(&pane).contains("VITE_HOLD_START")
     });
-    let _ = e2e::live().output(&["pane", "send-text", &pane, "q"]);
     e2e::send_keys(&pane, &["q"]);
 }
 

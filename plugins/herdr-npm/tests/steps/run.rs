@@ -256,6 +256,19 @@ async fn send_times_out(world: &mut BddWorld) {
     world.herdr.set_send_timeout();
 }
 
+#[when("sending input succeeds again")]
+async fn sending_recovers(world: &mut BddWorld) {
+    world.herdr.clear_send_timeout();
+}
+
+#[when("I left-click the launch error message")]
+async fn click_launch_error(world: &mut BddWorld) {
+    let app = world.app.as_ref().expect("sidebar");
+    let column = app.inner.x + 1;
+    let row = app.inner.y + app.inner.height - 1;
+    tui::left_click(world, column, row);
+}
+
 #[given("tab creation returns no usable root pane id")]
 async fn missing_root(world: &mut BddWorld) {
     world.herdr.set_missing_root();
@@ -530,15 +543,10 @@ async fn catalogue_unchanged(world: &mut BddWorld) {
     regex = r#"^the sidebar shows the message "Script launch not confirmed" including tab id "([^"]+)"$"#
 )]
 async fn launch_not_confirmed_with_id(world: &mut BddWorld, tab_id: String) {
-    let message = world
-        .app
-        .as_ref()
-        .and_then(|app| app.error_message())
-        .or_else(|| world.last_error.as_ref().map(ToString::to_string))
-        .unwrap_or_default();
     assert!(
-        message.contains("Script launch not confirmed") && message.contains(&tab_id),
-        "message={message}"
+        tui::shows_text(world, &format!("Script launch not confirmed ({tab_id})")),
+        "missing launch error on screen:\n{}",
+        world.screen
     );
 }
 

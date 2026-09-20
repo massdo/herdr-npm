@@ -76,7 +76,7 @@ pub fn flush_intents<H: HerdrPort>(app: &mut SidebarApp, herdr: &H) {
     let workspace = app.workspace_id.clone();
     for intent in intents {
         match run_script(herdr, &catalog, &workspace, &intent.script_name) {
-            Ok(_) => {}
+            Ok(_) => app.launch_error = None,
             Err(error) => app.launch_error = Some(error),
         }
     }

@@ -37,6 +37,17 @@ pub fn draw(world: &mut BddWorld) {
     world.screen = buffer_to_string(terminal.backend());
 }
 
+pub fn shows_text(world: &BddWorld, text: &str) -> bool {
+    // Ignore wrapping and the frame, but only inspect cells actually rendered.
+    let compact = |value: &str| -> String {
+        value
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && *ch != '│')
+            .collect()
+    };
+    compact(&world.screen).contains(&compact(text))
+}
+
 fn buffer_to_string(backend: &TestBackend) -> String {
     let buffer = backend.buffer();
     let area = buffer.area;
@@ -183,39 +194,10 @@ pub fn close_with_q(world: &mut BddWorld) {
 }
 
 pub fn launch_pending(world: &mut BddWorld) {
-    let intents = match world.app.as_mut() {
-        Some(app) => std::mem::take(&mut app.run_intents),
-        None => return,
-    };
-    let catalog = world.app.as_ref().and_then(|app| app.catalog().cloned());
-    let workspace = world
-        .app
-        .as_ref()
-        .map(|app| app.workspace_id.clone())
-        .unwrap_or_else(|| world.workspace_id.clone());
-    let Some(catalog) = catalog else {
+    let Some(app) = world.app.as_mut() else {
         return;
     };
-    for intent in intents {
-        match herdr_npm::application::run_script::run_script(
-            &world.herdr,
-            &catalog,
-            &workspace,
-            &intent.script_name,
-        ) {
-            Ok(_) => {
-                if let Some(app) = world.app.as_mut() {
-                    app.launch_error = None;
-                }
-                world.last_error = None;
-            }
-            Err(error) => {
-                world.last_error = Some(error.clone());
-                if let Some(app) = world.app.as_mut() {
-                    app.launch_error = Some(error);
-                }
-            }
-        }
-    }
+    herdr_npm::adapters::tui::flush_intents(app, &world.herdr);
+    world.last_error = app.launch_error.clone();
     draw(world);
 }

@@ -13,14 +13,21 @@ pub fn run_script<H: HerdrPort>(
     script_name: &str,
 ) -> Result<CreatedTab, AppError> {
     let command = run_invocation(catalog.manager, script_name);
-    let created = herdr.create_tab(CreateTab {
-        workspace_id: workspace_id.to_string(),
-        cwd: catalog.root.clone(),
-        label: command.clone(),
-        focus: false,
-    })?;
+    let created = herdr
+        .create_tab(CreateTab {
+            workspace_id: workspace_id.to_string(),
+            cwd: catalog.root.clone(),
+            label: command.clone(),
+            focus: false,
+        })
+        .map_err(|error| match error {
+            AppError::Uncertain { .. } => AppError::LaunchNotConfirmed { tab_id: None },
+            other => other,
+        })?;
     if created.root_pane_id.as_str().is_empty() {
-        return Err(AppError::LaunchNotConfirmed { tab_id: None });
+        return Err(AppError::LaunchNotConfirmed {
+            tab_id: Some(created.tab_id.0),
+        });
     }
     match herdr.send_input(&created.root_pane_id, &command, &["Enter"]) {
         Ok(()) => Ok(created),

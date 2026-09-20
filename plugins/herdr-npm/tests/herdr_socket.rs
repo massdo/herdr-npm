@@ -152,7 +152,7 @@ fn tab_create_error_is_not_a_confirmed_launch() {
 }
 
 #[test]
-fn tab_create_missing_root_pane_is_uncertain() {
+fn tab_create_missing_root_pane_preserves_known_tab() {
     let path = temp_sock();
     serve(path.clone(), |req| {
         json!({
@@ -168,7 +168,7 @@ fn tab_create_missing_root_pane_is_uncertain() {
             label: "npm run -- dev".into(),
             focus: false,
         }),
-        Err(AppError::Uncertain { .. })
+        Err(AppError::LaunchNotConfirmed { tab_id: Some(id) }) if id == "tab-dev"
     ));
 }
 
@@ -266,4 +266,86 @@ fn send_input_is_forwarded_once() {
     assert_eq!(calls[0]["method"], "pane.send_input");
     assert_eq!(calls[0]["params"]["text"], "npm run -- dev");
     assert_eq!(calls[0]["params"]["keys"][0], "Enter");
+}
+
+#[test]
+fn lost_or_unframed_acknowledgement_is_uncertain() {
+    for (reply, delay) in [
+        ("", 0),
+        (r#"{"id":"herdr-npm:pane.swap","result":{}}"#, 0),
+        ("", 6),
+    ] {
+        let path = temp_sock();
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(&stream).read_line(&mut request).unwrap();
+            assert!(request.contains("pane.swap"));
+            thread::sleep(Duration::from_secs(delay));
+            let _ = stream.write_all(reply.as_bytes());
+        });
+        let result = HerdrSocket::new(path.clone())
+            .swap_panes(&"w1:p1".to_string().into(), &"w1:p2".to_string().into());
+        assert!(
+            matches!(result, Err(AppError::Uncertain { .. })),
+            "{result:?}"
+        );
+        server.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn connection_failure_before_sending_is_certain() {
+    let result = HerdrSocket::new(temp_sock())
+        .swap_panes(&"w1:p1".to_string().into(), &"w1:p2".to_string().into());
+    assert!(matches!(result, Err(AppError::Herdr { .. })), "{result:?}");
+}
+
+#[test]
+fn missing_or_empty_root_never_sends_input_and_keeps_tab_id() {
+    use herdr_npm::application::run_script::run_script;
+    use herdr_npm::domain::catalog::{PackageCatalog, PackageManager};
+    for root in [Value::Null, json!({"pane_id": ""}), json!({"pane_id": " "})] {
+        let path = temp_sock();
+        serve(path.clone(), move |req| {
+            assert_eq!(
+                req["method"], "tab.create",
+                "must not send input without a root pane"
+            );
+            json!({ "id": req["id"], "result": {"tab": {"tab_id": "tab-dev"}, "root_pane": root} })
+        });
+        let catalog = PackageCatalog {
+            root: "/work/app".into(),
+            display_name: "app".into(),
+            manager: PackageManager::Npm,
+            scripts: vec![],
+        };
+        let result = run_script(&HerdrSocket::new(path), &catalog, "main", "dev");
+        assert!(
+            matches!(result, Err(AppError::LaunchNotConfirmed { tab_id: Some(id) }) if id == "tab-dev")
+        );
+    }
+}
+
+#[test]
+fn unknown_tab_id_is_not_a_confirmed_launch() {
+    use herdr_npm::application::run_script::run_script;
+    use herdr_npm::domain::catalog::{PackageCatalog, PackageManager};
+    let path = temp_sock();
+    serve(path.clone(), |req| {
+        assert_eq!(req["method"], "tab.create");
+        json!({"id": req["id"], "result": {"tab": {"tab_id": ""}, "root_pane": {"pane_id": "w1:p1"}}})
+    });
+    let catalog = PackageCatalog {
+        root: "/work/app".into(),
+        display_name: "app".into(),
+        manager: PackageManager::Npm,
+        scripts: vec![],
+    };
+    assert!(matches!(
+        run_script(&HerdrSocket::new(path), &catalog, "main", "dev"),
+        Err(AppError::LaunchNotConfirmed { tab_id: None })
+    ));
 }

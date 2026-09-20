@@ -41,7 +41,17 @@ impl ProjectPort for FsProject {
         let mut current = start;
         loop {
             let candidate = current.join("package.json");
-            if candidate.exists() {
+            let found = match fs::symlink_metadata(&candidate) {
+                Ok(_) => true,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(_) => {
+                    return LoadedCatalog {
+                        root: Some(current),
+                        catalog: Err(AppError::CannotReadPackageJson { path: candidate }),
+                    };
+                }
+            };
+            if found {
                 let bytes = match fs::read(&candidate) {
                     Ok(bytes) => bytes,
                     Err(_) => {
@@ -173,5 +183,23 @@ mod tests {
             Err(AppError::CannotReadPackageJson { .. })
         ));
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn broken_package_symlink_does_not_load_the_parent_package() {
+        let root = temp_root();
+        write(
+            &root.join("package.json"),
+            r#"{"scripts":{"dev":"echo parent"}}"#,
+        );
+        fs::create_dir(root.join("nested")).unwrap();
+        std::os::unix::fs::symlink("missing.json", root.join("nested/package.json")).unwrap();
+        let loaded = FsProject::capped(root.clone()).load_catalog(&root.join("nested"));
+        assert_eq!(loaded.root, Some(root.join("nested")));
+        assert!(matches!(
+            loaded.catalog,
+            Err(AppError::CannotReadPackageJson { .. })
+        ));
+        fs::remove_dir_all(root).unwrap();
     }
 }

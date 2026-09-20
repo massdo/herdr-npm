@@ -33,18 +33,7 @@ impl HerdrSocket {
             "method": method,
             "params": params,
         });
-        let line = match roundtrip(&self.path, &request.to_string()) {
-            Ok(line) => line,
-            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
-                return Err(AppError::uncertain(
-                    method,
-                    "socket timed out after the request was written; inspect the layout before retrying",
-                ));
-            }
-            Err(error) => {
-                return Err(AppError::herdr(method, "transport", error.to_string()));
-            }
-        };
+        let line = roundtrip(&self.path, &request.to_string(), method)?;
         let value: Value = serde_json::from_str(line.trim()).map_err(|error| {
             AppError::uncertain(method, format!("response is not JSON: {error}"))
         })?;
@@ -118,6 +107,7 @@ impl HerdrPort for HerdrSocket {
             .and_then(|pane| pane.get("pane"))
             .and_then(|pane| pane.get("pane_id"))
             .and_then(Value::as_str)
+            .filter(|id| !id.trim().is_empty())
             .ok_or_else(|| {
                 AppError::uncertain(
                     "plugin.pane.open",
@@ -193,13 +183,15 @@ impl HerdrPort for HerdrSocket {
             .get("tab")
             .and_then(|tab| tab.get("tab_id"))
             .and_then(Value::as_str)
+            .filter(|id| !id.trim().is_empty())
             .ok_or_else(|| AppError::uncertain("tab.create", "response has no tab.tab_id"))?;
         let root_pane_id = result
             .get("root_pane")
             .and_then(|pane| pane.get("pane_id"))
             .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AppError::uncertain("tab.create", "response has no root_pane.pane_id")
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| AppError::LaunchNotConfirmed {
+                tab_id: Some(tab_id.to_string()),
             })?;
         Ok(CreatedTab {
             tab_id: tab_id.to_string().into(),
@@ -233,20 +225,30 @@ fn parse_pane_list(result: Value) -> Result<Vec<PaneInfo>, AppError> {
         })
 }
 
-fn roundtrip(path: &Path, request: &str) -> std::io::Result<String> {
-    let stream = UnixStream::connect(path)?;
-    stream.set_read_timeout(Some(IPC_TIMEOUT))?;
-    stream.set_write_timeout(Some(IPC_TIMEOUT))?;
+fn roundtrip(path: &Path, request: &str, method: &str) -> Result<String, AppError> {
+    let before_send =
+        |error: std::io::Error| AppError::herdr(method, "transport", error.to_string());
+    let after_send = |error: std::io::Error| AppError::uncertain(method, error.to_string());
+    let stream = UnixStream::connect(path).map_err(before_send)?;
+    stream
+        .set_read_timeout(Some(IPC_TIMEOUT))
+        .map_err(before_send)?;
+    stream
+        .set_write_timeout(Some(IPC_TIMEOUT))
+        .map_err(before_send)?;
     let mut stream = stream;
-    stream.write_all(request.as_bytes())?;
-    stream.write_all(b"\n")?;
-    stream.flush()?;
+    // Once writing starts, an error cannot prove that Herdr did not apply the request.
+    stream.write_all(request.as_bytes()).map_err(after_send)?;
+    stream.write_all(b"\n").map_err(after_send)?;
+    stream.flush().map_err(after_send)?;
     let mut line = String::new();
-    BufReader::new(stream.take(MAX_RESPONSE_BYTES)).read_line(&mut line)?;
-    if line.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "empty socket response",
+    BufReader::new(stream.take(MAX_RESPONSE_BYTES))
+        .read_line(&mut line)
+        .map_err(after_send)?;
+    if !line.ends_with('\n') {
+        return Err(AppError::uncertain(
+            method,
+            "socket response is empty, incomplete or exceeds the response limit",
         ));
     }
     Ok(line)

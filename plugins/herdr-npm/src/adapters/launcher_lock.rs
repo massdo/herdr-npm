@@ -29,33 +29,30 @@ pub fn acquire(state_dir: &Path) -> Result<LauncherLock, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Barrier};
+    use std::sync::mpsc;
     use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     #[test]
     fn second_acquirer_waits_until_the_first_drops() {
         let dir = std::env::temp_dir().join(format!("herdr-npm-lock-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let barrier = Arc::new(Barrier::new(2));
         let held = acquire(&dir).unwrap();
         let dir_clone = dir.clone();
-        let barrier_clone = barrier.clone();
-        let started = Instant::now();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
         let handle = thread::spawn(move || {
-            barrier_clone.wait();
+            started_tx.send(()).unwrap();
             let _second = acquire(&dir_clone).unwrap();
-            Instant::now()
+            acquired_tx.send(()).unwrap();
         });
-        thread::sleep(Duration::from_millis(80));
-        barrier.wait();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let while_held = acquired_rx.recv_timeout(Duration::from_millis(100));
         drop(held);
-        let second_at = handle.join().unwrap();
-        assert!(
-            second_at.duration_since(started) >= Duration::from_millis(70),
-            "second lock was not serialised"
-        );
+        assert_eq!(while_held, Err(mpsc::RecvTimeoutError::Timeout));
+        acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        handle.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

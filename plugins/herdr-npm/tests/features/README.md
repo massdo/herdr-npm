@@ -59,10 +59,12 @@ Après alignement V1 :
 | `toggle_sidebar.feature` | 20 | 20 | 3 |
 | `list_scripts.feature` | 36 | 44 | 0 |
 | `detect_package_manager.feature` | 4 | 18 | 0 |
-| `run_script.feature` | 21 | 35 | 4 |
-| **Total** | **81** | **117** | **7** |
+| `run_script.feature` | 23 | 37 | 4 |
+| **Total** | **83** | **119** | **7** |
 
-Hors `@e2e` : 74 déclarations, 110 cas. Le 7e `@e2e` est la procédure de redémarrage (pane restauré inerte). Les 6 cas historiques (ancrage explorer, `q`, arrêt du script, sortie conservée, `q` transmis, CLI) restent.
+Hors `@e2e` : 76 déclarations, 112 cas. Le 7e `@e2e` est la procédure de redémarrage (pane restauré inerte). Les 6 cas historiques (ancrage explorer, `q`, arrêt du script, sortie conservée, `q` transmis, CLI) restent.
+
+Les assertions de messages inspectent les cellules rendues par TestBackend. Les lancements utilisent `flush_intents`, comme la TUI réelle. Le mode `check.sh harness` échoue si la suite métier échoue.
 
 Le harnais recomptera à l’exécution. Ce tableau est le compte lu dans les fichiers livrés.
 

@@ -186,6 +186,10 @@ impl FakeHerdr {
         self.inner.lock().expect("fake herdr lock").send_timeout = true;
     }
 
+    pub fn clear_send_timeout(&self) {
+        self.inner.lock().expect("fake herdr lock").send_timeout = false;
+    }
+
     pub fn set_shell_exec(&self, path_prefix: PathBuf, argv_file: PathBuf) {
         let mut inner = self.inner.lock().expect("fake herdr lock");
         inner.shell_path = Some(path_prefix);

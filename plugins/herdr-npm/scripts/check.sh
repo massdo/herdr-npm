@@ -4,7 +4,6 @@ set -eu
 PLUGIN_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 REPO_DIR=$(CDPATH= cd -- "$PLUGIN_DIR/../.." && pwd)
 MANIFEST="$PLUGIN_DIR/Cargo.toml"
-CARGO_TEST="cargo test --manifest-path $MANIFEST"
 
 cd "$REPO_DIR"
 
@@ -69,51 +68,19 @@ PY
 
 run_features() {
   tags=$1
-  echo "+ $CARGO_TEST --test features -- --tags $tags"
-  $CARGO_TEST --test features -- --tags "$tags"
+  echo "+ cargo test --manifest-path $MANIFEST --test features -- --tags $tags"
+  cargo test --manifest-path "$MANIFEST" --test features -- --tags "$tags"
 }
 
 mode=${1:-}
 case "$mode" in
   harness)
     echo "== compile features target =="
-    $CARGO_TEST --test features --no-run
+    cargo test --manifest-path "$MANIFEST" --test features --no-run
     echo "== discover =="
     count_features
-    echo "== business suite (expected red until later lots) =="
-    out=$(mktemp)
-    trap 'rm -f "$out"' EXIT
-    set +e
-    run_features "not @e2e" >"$out" 2>&1
-    biz=$?
-    set -e
-    cat "$out"
-    echo "business_suite_exit=$biz"
-    if ! grep -E '^[0-9]+ scenarios' "$out" >/dev/null; then
-      echo "harness: cucumber produced no scenario summary"
-      exit 1
-    fi
-    summary=$(grep -E '^[0-9]+ scenarios' "$out" | tail -n 1)
-    echo "business_suite_summary=$summary"
-    case "$summary" in
-      110\ scenarios*)
-        ;;
-      *)
-        echo "harness: expected 110 scenarios after not @e2e (74 declarations expanded, 7 e2e excluded)"
-        exit 1
-        ;;
-    esac
-    if [ "$biz" -eq 0 ]; then
-      echo "harness: compile+parse ok; business suite is green"
-      exit 0
-    fi
-    # cucumber-rs panics (cargo 101) or we exit 1 from the features binary.
-    if [ "$biz" -eq 1 ] || [ "$biz" -eq 101 ]; then
-      echo "harness: compile+parse ok; business suite is red (exit $biz) as expected before toggle/catalog/run lots"
-      exit 0
-    fi
-    echo "harness: cucumber did not run a business suite (exit $biz)"
-    exit "$biz"
+    echo "== business suite =="
+    run_features "not @e2e"
     ;;
   toggle)
     run_features "@toggle and not @e2e"
