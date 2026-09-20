@@ -48,6 +48,14 @@ pub struct BddWorld {
     pub workspace_id: String,
     pub argv_file: PathBuf,
     pub fake_bin: PathBuf,
+    pub e2e_working_pane: Option<String>,
+    pub e2e_sidebar_pane: Option<String>,
+    pub e2e_explorer_pane: Option<String>,
+    pub e2e_script_tab: Option<String>,
+    pub e2e_script_pane: Option<String>,
+    pub e2e_script_pid: Option<i32>,
+    pub e2e_restored_pane: Option<String>,
+    pub e2e_tabs_before: Vec<String>,
 }
 
 impl Default for BddWorld {
@@ -97,6 +105,14 @@ impl Default for BddWorld {
             workspace_id: "main".into(),
             argv_file,
             fake_bin,
+            e2e_working_pane: None,
+            e2e_sidebar_pane: None,
+            e2e_explorer_pane: None,
+            e2e_script_tab: None,
+            e2e_script_pane: None,
+            e2e_script_pid: None,
+            e2e_restored_pane: None,
+            e2e_tabs_before: Vec::new(),
         }
     }
 }

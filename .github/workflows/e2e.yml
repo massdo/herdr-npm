@@ -1,0 +1,43 @@
+name: e2e
+
+on:
+  push:
+    branches: [main, feat/herdr-npm-v1]
+  pull_request:
+
+jobs:
+  recipe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: pnpm
+        run: npm install -g pnpm@10
+      - name: Install Herdr 0.9.1
+        run: |
+          curl -fsSL https://herdr.dev/install.sh | sh
+          echo "$HOME/.herdr/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: versions
+        run: |
+          rustc --version
+          cargo --version
+          herdr --version
+          npm --version
+          pnpm --version
+      - name: e2e recipe
+        env:
+          HERDR_SIDEBAR_ROOT: ""
+        run: sh plugins/herdr-npm/scripts/e2e.sh
+      - name: install from this SHA
+        run: sh plugins/herdr-npm/scripts/install-smoke.sh "${{ github.sha }}"

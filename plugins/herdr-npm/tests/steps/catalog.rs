@@ -9,6 +9,7 @@ use herdr_npm::domain::CWD_FALLBACK_NOTE;
 use serde_json::{Map, Value, json};
 use unicode_width::UnicodeWidthStr;
 
+use crate::support::e2e;
 use crate::support::tui;
 use crate::support::world::BddWorld;
 
@@ -17,7 +18,11 @@ fn ensure_dir(path: &Path) {
 }
 
 fn write_package(world: &mut BddWorld, virt: &str, body: &Value) {
-    let dir = world.map_path(virt);
+    let dir = if e2e::active() {
+        e2e::fixture()
+    } else {
+        world.map_path(virt)
+    };
     ensure_dir(&dir);
     fs::write(
         dir.join("package.json"),

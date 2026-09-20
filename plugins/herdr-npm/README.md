@@ -4,30 +4,36 @@ Column of npm/pnpm scripts for the current package, as a Herdr plugin.
 
 ## Prerequisites
 
-- Herdr 0.9.1
-- Rust 1.89+ (edition 2024)
+- Herdr **0.9.1** (protocol 22)
+- Rust **1.89** (edition 2024) to build from source
 - macOS or Linux
-- npm or pnpm on PATH for later lots; the skeleton only opens an empty column
+- `npm` or `pnpm` on `PATH`
+- Recipe shells: `sh`, `bash`, `zsh` (the tab Herdr creates uses the configured shell)
 
-Supported recipe shells later: `sh`, `bash`, `zsh`.
+Heartbeat, marketplace listing, Windows, yarn/bun as managers, and prebuilt binaries are out of V1.
 
-## Install from source (linked checkout)
+## Install from a git SHA
+
+The V1 commit is installable by SHA without a GitHub release:
+
+```sh
+herdr plugin install massdo/herdr-npm/plugins/herdr-npm --ref <SHA> --yes
+```
+
+`sh plugins/herdr-npm/scripts/install-smoke.sh <SHA>` does that in a throwaway Herdr profile (it does not edit your personal `config.toml`).
+
+## Linked checkout (development)
 
 ```sh
 git clone https://github.com/massdo/herdr-npm
 cd herdr-npm
 sh plugins/herdr-npm/scripts/build.sh
-herdr plugin link "$PWD/plugins/herdr-npm"
-herdr config check
+herdr plugin link "$PWD/plugins/herdr-npm" --enabled
 ```
 
-Do not add keybindings to your personal `config.toml` while developing. Use a recipe profile, or invoke:
+## Keybindings
 
-```sh
-herdr --session <recipe-session> plugin action invoke --plugin herdr-npm toggle
-```
-
-Bindings to document when you opt in:
+Do not write these into a personal `config.toml` from the recipe scripts. Opt in yourself:
 
 ```toml
 # macOS / Ghostty
@@ -43,15 +49,36 @@ type = "plugin_action"
 command = "herdr-npm.toggle"
 ```
 
+If CI or a headless PTY cannot reproduce Ghostty's `cmd+shift+s`, invoke `herdr-npm.toggle` from the CLI or use `prefix+shift+s`. Confirm `cmd+shift+s` once in a real Ghostty window on macOS.
+
 ## Usage
 
-`herdr-npm.toggle` opens or closes the `npm` column on the left of the working pane (preferred outer width 32 columns, height of that pane). Press `q` in the column to close it.
+`herdr-npm.toggle` opens or closes the `npm` column on the left of the working pane. Preferred outer width is **32** columns, clamped to about 15–50% of the local split. Height follows the target pane; a pane already at half height keeps that height. The herdr-sidebar explorer is never the split target.
 
-After a Herdr restart the restored pane is inert (the session token is gone). Close that pane by hand, then toggle again to open a fresh sidebar. There is no heartbeat and no automatic replacement.
+The header shows the package name and `npm`/`pnpm`. Each script row starts with `▶`. `j`/`k` (and arrows) move the selection without wrapping. `h`/`l` scroll the full command on the footer. A too-small pane (under 12 inner columns or 4 rows) shows `Terminal too small` and blocks launch.
 
-Catalogue and script launch are later lots.
+Enter or a left mouse down on a script row starts `npm run -- <script>` or `pnpm run -- <script>` in a **new tab**, `focus: false`, cwd = package root. The sidebar keeps focus and the frozen catalogue. Closing that tab stops an ordinary recipe process; a normal exit leaves the tab and its output readable. `q` typed in a script tab is not eaten by the sidebar.
 
-## Limits
+## Errors
 
-- After a Herdr restart, a restored column is inert (session tokens are gone). Close it with Herdr, then toggle again. There is no automatic replacement.
-- Workspaces, yarn/bun as managers, Windows, marketplace and prebuilt binaries are out of V1.
+| Message | Meaning |
+|---|---|
+| `Cannot determine project directory` | Origin pane has no cwd |
+| `No package.json found` | Walk-up found none |
+| `package.json is not valid JSON` | Parse error |
+| `Cannot read package.json` | Unreadable file |
+| `This package.json has no scripts` | Missing or empty `scripts` |
+| `package.json scripts must be an object of strings` | Bad `scripts` shape |
+| `Terminal too small` | Resize the pane |
+| `Script launch not confirmed` | Tab create/send did not ack; inspect the layout, no automatic retry |
+
+## After a Herdr restart
+
+The restored column is inert (session token `herdr_npm_sidebar=v1` is gone). Close that pane with Herdr, then toggle again. There is no automatic replacement.
+
+## Validate
+
+```sh
+sh plugins/herdr-npm/scripts/check.sh all   # offline, not @e2e
+sh plugins/herdr-npm/scripts/e2e.sh         # isolated Herdr + PTY, macOS or Linux
+```

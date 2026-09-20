@@ -16,17 +16,33 @@ async fn main() {
             std::env::set_var("CUCUMBER_FILTER_TAGS", "not @e2e");
         }
     }
-    if e2e_selected(&args) && std::env::var("HERDR_NPM_E2E").ok().as_deref() != Some("1") {
-        eprintln!(
-            "@e2e requires HERDR_NPM_E2E=1 and the isolated Herdr recipe profile; refusing to mutate anything else"
-        );
-        std::process::exit(1);
+    if e2e_selected(&args) {
+        if std::env::var("HERDR_NPM_E2E").ok().as_deref() != Some("1") {
+            eprintln!(
+                "@e2e requires HERDR_NPM_E2E=1 and the isolated Herdr recipe profile; refusing to mutate anything else"
+            );
+            std::process::exit(1);
+        }
+        support::e2e::require_isolated();
     }
 
     // Parse real CLI (`--tags`, `CUCUMBER_FILTER_TAGS`). `with_default_cli()`
     // would ignore both and always run every scenario.
-    let writer = BddWorld::cucumber()
-        .fail_on_skipped()
+    let cucumber = BddWorld::cucumber().fail_on_skipped();
+    let cucumber = if e2e_selected(&args) {
+        cucumber.max_concurrent_scenarios(1)
+    } else {
+        cucumber
+    };
+    let writer = cucumber
+        .before(|feature, _, scenario, world| {
+            let tagged = has_e2e_tag(&scenario.tags) || has_e2e_tag(&feature.tags);
+            Box::pin(async move {
+                if tagged {
+                    support::e2e::prepare(world);
+                }
+            })
+        })
         .run("tests/features")
         .await;
 
@@ -58,6 +74,10 @@ fn e2e_selected(args: &[String]) -> bool {
         .as_deref()
         .is_some_and(selects_e2e);
     from_args || from_env
+}
+
+fn has_e2e_tag(tags: &[String]) -> bool {
+    tags.iter().any(|tag| tag == "e2e" || tag == "@e2e")
 }
 
 fn selects_e2e(expr: &str) -> bool {

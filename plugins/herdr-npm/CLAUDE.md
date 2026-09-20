@@ -29,6 +29,10 @@ Read at startup only. The TUI must not treat its own process cwd as the project:
 
 Visible label `npm`. Recognition is the session token, never the label. Tokens are lost on server restart.
 
+## E2E profile
+
+`scripts/e2e.sh` isolates the recipe with `XDG_CONFIG_HOME` + `HERDR_CONFIG_PATH` + named session `herdr-npm-e2e-<run>`. The socket and config must differ from `~/.config/herdr/herdr.sock` and `~/.config/herdr/config.toml`. `@e2e` refuses to run unless `HERDR_NPM_E2E=1` and those paths are set. Cleanup stops only that session.
+
 ## Copied code
 
 Socket client, left-dock swap and resize math are adapted from herdr-sidebar 0.13.0 (`1a5d37ef84edc91e5b3d3d4e39daa32952e6ecf2`), MIT, see `NOTICE`.

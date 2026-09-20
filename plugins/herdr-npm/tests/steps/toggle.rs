@@ -10,6 +10,7 @@ use herdr_npm::domain::ids::{PaneId, TabId, WorkspaceId};
 use herdr_npm::domain::pane::OriginContext;
 use herdr_npm::domain::{SIDEBAR_LABEL, SIDEBAR_TOKEN_KEY, SIDEBAR_TOKEN_VALUE};
 
+use crate::support::e2e;
 use crate::support::world::BddWorld;
 
 fn origin_tab(world: &BddWorld) -> &str {
@@ -274,6 +275,10 @@ async fn recognised_closed(world: &mut BddWorld) {
 
 #[then("the herdr-npm process has exited")]
 async fn process_exited(world: &mut BddWorld) {
+    if e2e::active() {
+        e2e::wait_sidebar_gone();
+        return;
+    }
     assert!(
         !world.herdr.exited().is_empty(),
         "sidebar process was not marked exited"
