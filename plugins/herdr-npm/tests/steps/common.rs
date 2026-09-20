@@ -1,10 +1,46 @@
 use cucumber::{given, then, when};
-use herdr_npm::application::open_sidebar::open_empty_sidebar;
+use herdr_npm::adapters::launcher_lock;
+use herdr_npm::application::toggle_sidebar::{ToggleOutcome, toggle_sidebar};
+use herdr_npm::domain::error::AppError;
 use herdr_npm::domain::ids::{PaneId, TabId, WorkspaceId};
 use herdr_npm::domain::pane::OriginContext;
 use herdr_npm::domain::{SIDEBAR_TOKEN_KEY, SIDEBAR_TOKEN_VALUE};
 
 use crate::support::world::BddWorld;
+
+pub(crate) fn run_locked_toggle(world: &mut BddWorld) {
+    world.pane_ids_before = world
+        .herdr
+        .panes()
+        .into_iter()
+        .map(|pane| pane.pane_id)
+        .collect();
+    world.focus_before = world.herdr.focused();
+    world.confirmed = false;
+    let Some(origin) = world.origin.clone() else {
+        world.last_error = Some(AppError::OriginMissing);
+        return;
+    };
+    match launcher_lock::acquire(&world.lock_dir) {
+        Err(error) => world.last_error = Some(error),
+        Ok(_lock) => match toggle_sidebar(&world.herdr, &origin) {
+            Ok(ToggleOutcome::Opened(pane)) => {
+                world.opened_pane = Some(pane);
+                world.last_error = None;
+                world.confirmed = true;
+            }
+            Ok(ToggleOutcome::Closed(pane)) => {
+                world.closed_pane = Some(pane);
+                world.last_error = None;
+                world.confirmed = true;
+            }
+            Err(error) => {
+                world.last_error = Some(error);
+                world.confirmed = false;
+            }
+        },
+    }
+}
 
 #[given(regex = r#"^Herdr is running with the "([^"]+)" plugin installed$"#)]
 async fn herdr_running(world: &mut BddWorld, plugin: String) {
@@ -28,14 +64,21 @@ async fn action_bound(_world: &mut BddWorld, key: String, os: String) {
     regex = r#"^the focused tab has no pane carrying token "herdr_npm_sidebar" equal to "v1"$"#
 )]
 async fn no_token(world: &mut BddWorld) {
-    assert!(
-        world.herdr.panes().iter().all(|pane| pane
-            .tokens
-            .get(SIDEBAR_TOKEN_KEY)
-            .map(String::as_str)
-            != Some(SIDEBAR_TOKEN_VALUE)),
-        "a recognised sidebar was already present"
-    );
+    assert_no_token_in_origin_tab(world);
+}
+
+#[then(regex = r#"^the focused tab has no pane carrying token "herdr_npm_sidebar" equal to "v1"$"#)]
+async fn no_token_then(world: &mut BddWorld) {
+    assert_no_token_in_origin_tab(world);
+}
+
+fn assert_no_token_in_origin_tab(world: &BddWorld) {
+    let tab = world.origin.as_ref().map(|origin| origin.tab_id.0.as_str());
+    let present = world.herdr.panes().iter().any(|pane| {
+        tab.is_none_or(|tab_id| pane.tab_id == tab_id)
+            && pane.tokens.get(SIDEBAR_TOKEN_KEY).map(String::as_str) == Some(SIDEBAR_TOKEN_VALUE)
+    });
+    assert!(!present, "a recognised sidebar was already present");
 }
 
 #[given(
@@ -61,14 +104,7 @@ async fn leftmost_working(world: &mut BddWorld, pane: String) {
 
 #[when(regex = r#"^I invoke the "herdr-npm.toggle" action$"#)]
 async fn invoke_toggle(world: &mut BddWorld) {
-    let origin = world
-        .origin
-        .clone()
-        .expect("origin must be captured before toggle");
-    match open_empty_sidebar(&world.herdr, &origin) {
-        Ok(pane) => world.opened_pane = Some(pane),
-        Err(error) => world.last_error = Some(error),
-    }
+    run_locked_toggle(world);
 }
 
 #[then(regex = r#"^a sidebar pane is opened to the left of pane "([^"]+)"$"#)]
@@ -88,13 +124,25 @@ async fn opened_left(world: &mut BddWorld, target: String) {
         calls.iter().any(|call| call.method == "pane.swap"),
         "left dock requires a swap, calls={calls:?}"
     );
+    let layout = world
+        .herdr
+        .layout_for_pane(opened.as_str())
+        .expect("layout");
+    let sidebar = layout
+        .panes
+        .iter()
+        .find(|pane| pane.pane_id == opened.as_str())
+        .expect("sidebar rect");
+    let editor = layout
+        .panes
+        .iter()
+        .find(|pane| pane.pane_id == target)
+        .expect("target rect");
     assert!(
-        world
-            .herdr
-            .panes()
-            .iter()
-            .any(|pane| pane.pane_id == opened.as_str()),
-        "opened pane missing from snapshot"
+        sidebar.rect.x < editor.rect.x,
+        "sidebar should sit left of {target}: sidebar={:?} editor={:?}",
+        sidebar.rect,
+        editor.rect
     );
 }
 
@@ -127,11 +175,8 @@ async fn has_token(world: &mut BddWorld) {
 
 #[then("the sidebar pane is focused")]
 async fn sidebar_focused(world: &mut BddWorld) {
-    let calls = world.herdr.calls();
-    assert!(
-        calls.iter().any(|call| call.method == "plugin.pane.focus"),
-        "sidebar was not focused: {calls:?}"
-    );
+    let opened = world.opened_pane.as_ref().expect("sidebar");
+    assert_eq!(world.herdr.focused().as_deref(), Some(opened.as_str()));
 }
 
 #[then("the preferred outer width of the sidebar is 32 columns")]
@@ -147,17 +192,33 @@ async fn preferred_width(world: &mut BddWorld) {
 
 #[then(regex = r#"^the sidebar height matches the height of pane "([^"]+)"$"#)]
 async fn height_matches(world: &mut BddWorld, pane: String) {
-    let layout = world.herdr.layout().expect("layout");
+    let sidebar_id = world
+        .opened_pane
+        .as_ref()
+        .map(|id| id.0.clone())
+        .or_else(|| {
+            world
+                .herdr
+                .panes()
+                .into_iter()
+                .find(|item| item.is_herdr_npm_sidebar())
+                .map(|item| item.pane_id)
+        })
+        .expect("sidebar id");
+    let layout = world
+        .herdr
+        .layout_for_pane(&pane)
+        .or_else(|| world.herdr.layout_for_pane(&sidebar_id))
+        .expect("layout");
     let target = layout
         .panes
         .iter()
         .find(|item| item.pane_id == pane)
         .expect("target pane in layout");
-    let opened = world.opened_pane.as_ref().expect("sidebar");
     let sidebar = layout
         .panes
         .iter()
-        .find(|item| item.pane_id == opened.as_str())
+        .find(|item| item.pane_id == sidebar_id)
         .expect("sidebar in layout");
     assert_eq!(
         sidebar.rect.height, target.rect.height,

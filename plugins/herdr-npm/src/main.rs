@@ -1,7 +1,8 @@
 use herdr_npm::adapters::env;
 use herdr_npm::adapters::herdr_socket::HerdrSocket;
+use herdr_npm::adapters::launcher_lock;
 use herdr_npm::adapters::tui;
-use herdr_npm::application::open_sidebar::open_empty_sidebar;
+use herdr_npm::application::toggle_sidebar::toggle_sidebar;
 use herdr_npm::domain::error::AppError;
 
 fn main() {
@@ -29,8 +30,9 @@ fn run() -> Result<(), AppError> {
 fn toggle() -> Result<(), AppError> {
     let process = env::load()?;
     let origin = env::origin_from_env()?;
+    let _lock = launcher_lock::acquire(&process.state_dir)?;
     let herdr = HerdrSocket::new(process.socket_path);
-    open_empty_sidebar(&herdr, &origin)?;
+    toggle_sidebar(&herdr, &origin)?;
     Ok(())
 }
 

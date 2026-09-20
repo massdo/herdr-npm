@@ -12,7 +12,6 @@ use crate::domain::{
 };
 
 /// Open an empty sidebar to the left of the working-pane target.
-/// Two-state toggle, identity races and the lock belong to a later lot.
 pub fn open_empty_sidebar<H: HerdrPort>(
     herdr: &H,
     origin: &OriginContext,

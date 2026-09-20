@@ -3,6 +3,7 @@ pub mod error;
 pub mod geometry;
 pub mod ids;
 pub mod pane;
+pub mod sidebar_decision;
 
 pub const PLUGIN_ID: &str = "herdr-npm";
 pub const PANE_ENTRYPOINT: &str = "sidebar";

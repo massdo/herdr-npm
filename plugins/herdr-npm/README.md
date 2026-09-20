@@ -43,11 +43,13 @@ type = "plugin_action"
 command = "herdr-npm.toggle"
 ```
 
-## Usage (V1 skeleton)
+## Usage
 
-`herdr-npm.toggle` opens an empty `npm` column on the left of the working pane (preferred outer width 32 columns, height of that pane). Press `q` in the column to close it.
+`herdr-npm.toggle` opens or closes the `npm` column on the left of the working pane (preferred outer width 32 columns, height of that pane). Press `q` in the column to close it.
 
-Catalogue, launch, two-state toggle and e2e recipe are later lots.
+After a Herdr restart the restored pane is inert (the session token is gone). Close that pane by hand, then toggle again to open a fresh sidebar. There is no heartbeat and no automatic replacement.
+
+Catalogue and script launch are later lots.
 
 ## Limits
 

@@ -141,7 +141,7 @@ impl HerdrPort for HerdrSocket {
     }
 
     fn focus_pane(&self, pane_id: &PaneId) -> Result<(), AppError> {
-        self.call("plugin.pane.focus", json!({ "pane_id": pane_id.as_str() }))?;
+        self.call("pane.focus", json!({ "pane_id": pane_id.as_str() }))?;
         Ok(())
     }
 
