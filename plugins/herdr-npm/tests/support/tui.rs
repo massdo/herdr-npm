@@ -63,12 +63,13 @@ pub fn open_sidebar(world: &mut BddWorld) {
         &project,
         &origin_for_paths(world.foreground_cwd.clone(), world.start_cwd.clone()),
     );
-    let app = SidebarApp::new(listed);
+    let mut app = SidebarApp::new(listed);
     world.names_at_open = app
         .scripts()
         .iter()
         .map(|script| script.name.clone())
         .collect();
+    app.workspace_id = world.workspace_id.clone();
     world.app = Some(app);
     draw(world);
 }
@@ -93,6 +94,9 @@ pub fn press(world: &mut BddWorld, code: KeyCode) {
         return;
     }
     draw(world);
+    if world.auto_launch {
+        launch_pending(world);
+    }
 }
 
 pub fn resize_to_current(world: &mut BddWorld) {
@@ -124,6 +128,9 @@ pub fn left_click(world: &mut BddWorld, column: u16, row: u16) {
         Event::Mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row)),
     );
     draw(world);
+    if world.auto_launch {
+        launch_pending(world);
+    }
 }
 
 pub fn mouse_up(world: &mut BddWorld, column: u16, row: u16) {
@@ -173,4 +180,42 @@ pub fn zone_column(world: &BddWorld, zone: &str) -> u16 {
 
 pub fn close_with_q(world: &mut BddWorld) {
     press(world, KeyCode::Char('q'));
+}
+
+pub fn launch_pending(world: &mut BddWorld) {
+    let intents = match world.app.as_mut() {
+        Some(app) => std::mem::take(&mut app.run_intents),
+        None => return,
+    };
+    let catalog = world.app.as_ref().and_then(|app| app.catalog().cloned());
+    let workspace = world
+        .app
+        .as_ref()
+        .map(|app| app.workspace_id.clone())
+        .unwrap_or_else(|| world.workspace_id.clone());
+    let Some(catalog) = catalog else {
+        return;
+    };
+    for intent in intents {
+        match herdr_npm::application::run_script::run_script(
+            &world.herdr,
+            &catalog,
+            &workspace,
+            &intent.script_name,
+        ) {
+            Ok(_) => {
+                if let Some(app) = world.app.as_mut() {
+                    app.launch_error = None;
+                }
+                world.last_error = None;
+            }
+            Err(error) => {
+                world.last_error = Some(error.clone());
+                if let Some(app) = world.app.as_mut() {
+                    app.launch_error = Some(error);
+                }
+            }
+        }
+    }
+    draw(world);
 }

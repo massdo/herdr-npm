@@ -44,6 +44,10 @@ pub struct BddWorld {
     pub prev_selected: usize,
     pub names_at_open: Vec<String>,
     pub tui_wanted: bool,
+    pub auto_launch: bool,
+    pub workspace_id: String,
+    pub argv_file: PathBuf,
+    pub fake_bin: PathBuf,
 }
 
 impl Default for BddWorld {
@@ -55,6 +59,8 @@ impl Default for BddWorld {
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let fs_root = lock_dir.join("fs");
+        let argv_file = lock_dir.join("argv.json");
+        let fake_bin = lock_dir.join("bin");
         let _ = std::fs::create_dir_all(&fs_root);
         Self {
             herdr: FakeHerdr::default(),
@@ -87,6 +93,10 @@ impl Default for BddWorld {
             prev_selected: 0,
             names_at_open: Vec::new(),
             tui_wanted: false,
+            auto_launch: false,
+            workspace_id: "main".into(),
+            argv_file,
+            fake_bin,
         }
     }
 }

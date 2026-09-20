@@ -97,6 +97,11 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
             lines.push(Line::from(note));
         }
     }
+    if let Some(error) = &app.launch_error
+        && lines.len() < inner.height as usize
+    {
+        lines.push(Line::from(error.to_string()));
+    }
     frame.render_widget(Paragraph::new(lines), inner);
 }
 

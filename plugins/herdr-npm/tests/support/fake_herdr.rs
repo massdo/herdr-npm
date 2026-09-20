@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -36,6 +38,24 @@ struct Inner {
     focused: Option<String>,
     exited: Vec<String>,
     diverted_tab: Option<String>,
+    created_tabs: Vec<FakeTab>,
+    next_tab: u32,
+    create_fail: bool,
+    forced_tab_id: Option<String>,
+    missing_root: bool,
+    send_timeout: bool,
+    shell_path: Option<PathBuf>,
+    argv_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FakeTab {
+    pub tab_id: String,
+    pub root_pane_id: String,
+    pub workspace_id: String,
+    pub cwd: PathBuf,
+    pub label: String,
+    pub focus: bool,
 }
 
 impl Default for Inner {
@@ -53,6 +73,14 @@ impl Default for Inner {
             focused: None,
             exited: Vec::new(),
             diverted_tab: None,
+            created_tabs: Vec::new(),
+            next_tab: 1,
+            create_fail: false,
+            forced_tab_id: None,
+            missing_root: false,
+            send_timeout: false,
+            shell_path: None,
+            argv_file: None,
         }
     }
 }
@@ -140,6 +168,36 @@ impl FakeHerdr {
 
     pub fn divert_focus_on_list(&self, tab: &str) {
         self.inner.lock().expect("fake herdr lock").diverted_tab = Some(tab.to_string());
+    }
+
+    pub fn set_create_fail(&self) {
+        self.inner.lock().expect("fake herdr lock").create_fail = true;
+    }
+
+    pub fn set_forced_tab_id(&self, tab_id: &str) {
+        self.inner.lock().expect("fake herdr lock").forced_tab_id = Some(tab_id.to_string());
+    }
+
+    pub fn set_missing_root(&self) {
+        self.inner.lock().expect("fake herdr lock").missing_root = true;
+    }
+
+    pub fn set_send_timeout(&self) {
+        self.inner.lock().expect("fake herdr lock").send_timeout = true;
+    }
+
+    pub fn set_shell_exec(&self, path_prefix: PathBuf, argv_file: PathBuf) {
+        let mut inner = self.inner.lock().expect("fake herdr lock");
+        inner.shell_path = Some(path_prefix);
+        inner.argv_file = Some(argv_file);
+    }
+
+    pub fn created_tabs(&self) -> Vec<FakeTab> {
+        self.inner
+            .lock()
+            .expect("fake herdr lock")
+            .created_tabs
+            .clone()
     }
 
     pub fn remove_pane(&self, pane_id: &str) {
@@ -632,20 +690,86 @@ impl HerdrPort for FakeHerdr {
     }
 
     fn create_tab(&self, request: CreateTab) -> Result<CreatedTab, AppError> {
-        self.record("tab.create", request.label);
-        Err(AppError::herdr(
+        self.record(
             "tab.create",
-            "not_implemented",
-            "run lot has not implemented launch yet",
-        ))
+            format!(
+                "{} {} focus={}",
+                request.workspace_id,
+                request.cwd.display(),
+                request.focus
+            ),
+        );
+        let mut inner = self.inner.lock().expect("fake herdr lock");
+        if inner.create_fail {
+            return Err(AppError::herdr("tab.create", "failed", "cannot create tab"));
+        }
+        let tab_id = inner
+            .forced_tab_id
+            .clone()
+            .unwrap_or_else(|| format!("tab-{}", inner.next_tab));
+        inner.next_tab += 1;
+        inner.forced_tab_id = None;
+        let root_pane_id = if inner.missing_root {
+            String::new()
+        } else {
+            format!("{tab_id}:p1")
+        };
+        inner.created_tabs.push(FakeTab {
+            tab_id: tab_id.clone(),
+            root_pane_id: root_pane_id.clone(),
+            workspace_id: request.workspace_id.clone(),
+            cwd: request.cwd.clone(),
+            label: request.label.clone(),
+            focus: request.focus,
+        });
+        Ok(CreatedTab {
+            tab_id: tab_id.into(),
+            root_pane_id: root_pane_id.into(),
+        })
     }
 
-    fn send_input(&self, pane_id: &PaneId, text: &str, _keys: &[&str]) -> Result<(), AppError> {
-        self.record("pane.send_input", format!("{} {text}", pane_id.as_str()));
-        Err(AppError::herdr(
+    fn send_input(&self, pane_id: &PaneId, text: &str, keys: &[&str]) -> Result<(), AppError> {
+        self.record(
             "pane.send_input",
-            "not_implemented",
-            "run lot has not implemented launch yet",
-        ))
+            format!("{} {text} keys={}", pane_id.as_str(), keys.join(",")),
+        );
+        let inner = self.inner.lock().expect("fake herdr lock");
+        if inner.send_timeout {
+            return Err(AppError::uncertain(
+                "pane.send_input",
+                "socket timed out after the request was written; inspect the layout before retrying",
+            ));
+        }
+        let cwd = inner
+            .created_tabs
+            .iter()
+            .find(|tab| tab.root_pane_id == pane_id.as_str())
+            .map(|tab| tab.cwd.clone());
+        let shell_path = inner.shell_path.clone();
+        let argv_file = inner.argv_file.clone();
+        drop(inner);
+        if let (Some(path_prefix), Some(argv_file), Some(cwd)) = (shell_path, argv_file, cwd) {
+            let path = format!(
+                "{}:{}",
+                path_prefix.display(),
+                std::env::var("PATH").unwrap_or_default()
+            );
+            let status = Command::new("sh")
+                .arg("-c")
+                .arg(text)
+                .current_dir(cwd)
+                .env("PATH", path)
+                .env("HERDR_NPM_ARGV", &argv_file)
+                .status()
+                .map_err(|error| AppError::Io {
+                    message: error.to_string(),
+                })?;
+            if !status.success() {
+                return Err(AppError::Io {
+                    message: format!("fake manager exited {status}"),
+                });
+            }
+        }
+        Ok(())
     }
 }

@@ -19,6 +19,8 @@ pub struct SidebarApp {
     pub run_intents: Vec<RunIntent>,
     pub inner: Rect,
     pub process_running: bool,
+    pub workspace_id: String,
+    pub launch_error: Option<AppError>,
 }
 
 impl SidebarApp {
@@ -31,6 +33,8 @@ impl SidebarApp {
             run_intents: Vec::new(),
             inner: Rect::new(0, 0, 32, 24),
             process_running: true,
+            workspace_id: String::new(),
+            launch_error: None,
         }
     }
 
@@ -42,7 +46,7 @@ impl SidebarApp {
         match &self.listed.catalog {
             Err(error) => Some(error.to_string()),
             Ok(_) if self.too_small() => Some(AppError::TerminalTooSmall.to_string()),
-            Ok(_) => None,
+            Ok(_) => self.launch_error.as_ref().map(ToString::to_string),
         }
     }
 

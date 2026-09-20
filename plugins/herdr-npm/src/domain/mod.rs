@@ -4,6 +4,7 @@ pub mod geometry;
 pub mod ids;
 pub mod package_manager;
 pub mod pane;
+pub mod run_command;
 pub mod sidebar_decision;
 
 pub const PLUGIN_ID: &str = "herdr-npm";

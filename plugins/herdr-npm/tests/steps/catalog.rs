@@ -503,6 +503,7 @@ async fn rewrite_only_script(world: &mut BddWorld, path: String, script: String)
 async fn i_press(world: &mut BddWorld, key: String) {
     let code = match key.as_str() {
         "j" | "k" | "h" | "l" | "q" => KeyCode::Char(key.chars().next().expect("key")),
+        "Enter" => KeyCode::Enter,
         other => panic!("unhandled key {other}"),
     };
     tui::press(world, code);

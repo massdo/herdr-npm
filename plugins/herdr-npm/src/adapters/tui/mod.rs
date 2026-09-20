@@ -18,11 +18,13 @@ use crate::adapters::fs_project::FsProject;
 use crate::adapters::herdr_socket::HerdrSocket;
 use crate::application::close_own_pane::close_own_pane;
 use crate::application::list_scripts::{list_scripts, origin_for_paths};
+use crate::application::ports::HerdrPort;
+use crate::application::run_script::run_script;
 use crate::domain::error::AppError;
 
 use self::app::SidebarApp;
 
-/// Catalogue TUI. `q` closes the pane.
+/// Catalogue TUI. Enter / left-click launches from the frozen catalogue.
 pub fn run(process: ProcessEnv) -> Result<(), AppError> {
     let listed = list_scripts(
         &FsProject::new(),
@@ -32,19 +34,21 @@ pub fn run(process: ProcessEnv) -> Result<(), AppError> {
         ),
     );
     let mut app = SidebarApp::new(listed);
+    app.workspace_id = process.tui_origin.workspace_id.clone().unwrap_or_default();
+    let herdr = HerdrSocket::new(process.socket_path.clone());
     let mut terminal = setup()?;
-    let result = event_loop(&mut terminal, &mut app);
+    let result = event_loop(&mut terminal, &mut app, &herdr);
     let _ = teardown(&mut terminal);
     if let Some(pane_id) = process.own_pane_id {
-        let herdr = HerdrSocket::new(process.socket_path);
         let _ = close_own_pane(&herdr, &pane_id);
     }
     result
 }
 
-fn event_loop(
+fn event_loop<H: HerdrPort>(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut SidebarApp,
+    herdr: &H,
 ) -> Result<(), AppError> {
     loop {
         terminal.draw(|frame| view::render(frame, app))?;
@@ -57,9 +61,25 @@ fn event_loop(
             if keymap::handle_event(app, event) {
                 break;
             }
+            flush_intents(app, herdr);
         }
     }
     Ok(())
+}
+
+pub fn flush_intents<H: HerdrPort>(app: &mut SidebarApp, herdr: &H) {
+    let intents = std::mem::take(&mut app.run_intents);
+    let Some(catalog) = app.catalog().cloned() else {
+        app.run_intents = intents;
+        return;
+    };
+    let workspace = app.workspace_id.clone();
+    for intent in intents {
+        match run_script(herdr, &catalog, &workspace, &intent.script_name) {
+            Ok(_) => {}
+            Err(error) => app.launch_error = Some(error),
+        }
+    }
 }
 
 fn setup() -> Result<Terminal<CrosstermBackend<io::Stdout>>, AppError> {

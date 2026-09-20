@@ -133,6 +133,8 @@ case "$mode" in
     cargo test --manifest-path "$MANIFEST" --lib
     echo "== architecture =="
     cargo test --manifest-path "$MANIFEST" --test architecture
+    echo "== socket + argv =="
+    cargo test --manifest-path "$MANIFEST" --test herdr_socket --test run_argv
     echo "== features not @e2e =="
     run_features "not @e2e"
     ;;
