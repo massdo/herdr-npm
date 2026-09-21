@@ -14,6 +14,7 @@ pub struct ProcessEnv {
     pub own_pane_id: Option<PaneId>,
     pub state_dir: PathBuf,
     pub tui_origin: TuiOrigin,
+    pub icons: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -45,6 +46,7 @@ pub fn load() -> Result<ProcessEnv, AppError> {
             foreground_cwd: env_string(crate::domain::ORIGIN_FOREGROUND_CWD_ENV).map(PathBuf::from),
             cwd: env_string(crate::domain::ORIGIN_CWD_ENV).map(PathBuf::from),
         },
+        icons: env_string("HERDR_NPM_ICONS"),
     })
 }
 

@@ -4,7 +4,7 @@ use std::path::Path;
 use crossterm::event::KeyCode;
 use cucumber::gherkin::Step;
 use cucumber::{given, then, when};
-use herdr_npm::adapters::tui::app::PLAY_ICON;
+use herdr_npm::adapters::tui::theme::Theme;
 use herdr_npm::domain::CWD_FALLBACK_NOTE;
 use serde_json::{Map, Value, json};
 use unicode_width::UnicodeWidthStr;
@@ -171,11 +171,20 @@ fn assert_no_launch(world: &mut BddWorld) {
     }
 }
 
+fn play_icon(world: &BddWorld) -> &'static str {
+    world
+        .app
+        .as_ref()
+        .map(|app| app.theme.icons.play)
+        .unwrap_or(">")
+}
+
 fn row_for_script<'a>(world: &'a BddWorld, name: &str) -> &'a str {
+    let play = play_icon(world);
     world
         .screen
         .lines()
-        .find(|line| line.contains(name) && line.contains(PLAY_ICON))
+        .find(|line| line.contains(name) && line.contains(play))
         .unwrap_or_else(|| panic!("no visible row for {name} in:\n{}", world.screen))
 }
 
@@ -688,7 +697,10 @@ async fn shows_script(world: &mut BddWorld, name: String, command: String) {
 async fn every_play_icon(world: &mut BddWorld) {
     for name in script_names(world) {
         let row = row_for_script(world, &name);
-        assert!(row.contains(PLAY_ICON), "row without play icon: {row}");
+        assert!(
+            row.contains(play_icon(world)),
+            "row without play icon: {row}"
+        );
     }
 }
 
@@ -946,7 +958,7 @@ async fn field_ellipsized(world: &mut BddWorld, field: String) {
 #[then("the row still shows its play icon")]
 async fn row_has_icon(world: &mut BddWorld) {
     assert!(
-        world.screen.contains(PLAY_ICON),
+        world.screen.contains(play_icon(world)),
         "play icon missing:\n{}",
         world.screen
     );
@@ -956,7 +968,7 @@ async fn row_has_icon(world: &mut BddWorld) {
 async fn laid_out_with_cell_width(world: &mut BddWorld) {
     let inner_width = require_app(world).inner.width as usize;
     for line in world.screen.lines() {
-        if line.contains(PLAY_ICON) || line.contains("日本語") {
+        if line.contains(play_icon(world)) || line.contains("日本語") {
             assert!(
                 line.width() <= inner_width + 2,
                 "line wider than inner area ({inner_width}): {line:?} width={}",
@@ -1006,7 +1018,9 @@ async fn footer_single_line(world: &mut BddWorld, name: String) {
     let footer_lines = world
         .screen
         .lines()
-        .filter(|line| line.contains(&prefix) || (line.contains('…') && !line.contains(PLAY_ICON)))
+        .filter(|line| {
+            line.contains(&prefix) || (line.contains('…') && !line.contains(play_icon(world)))
+        })
         .count();
     assert!(
         footer_lines <= 2,
@@ -1018,8 +1032,64 @@ async fn footer_single_line(world: &mut BddWorld, name: String) {
 #[then("the footer shows how to scroll that line with h and l")]
 async fn footer_help(world: &mut BddWorld) {
     assert!(
-        world.screen.contains("h/l"),
-        "missing h/l help:\n{}",
+        world.screen.contains(" h ") && world.screen.contains(" l "),
+        "missing h/l keycaps:\n{}",
+        world.screen
+    );
+}
+
+#[given(regex = r#"^the icon set is (ascii|nerd)$"#)]
+async fn icon_set(world: &mut BddWorld, set: String) {
+    world.theme = match set.as_str() {
+        "nerd" => Theme::nerd(),
+        _ => Theme::ascii(),
+    };
+    if world.app.is_some() {
+        if let Some(app) = world.app.as_mut() {
+            app.theme = world.theme;
+        }
+        tui::draw(world);
+    }
+}
+
+#[then(regex = r#"^the sidebar header shows the script count (\d+)$"#)]
+async fn header_count(world: &mut BddWorld, count: usize) {
+    assert_eq!(require_app(world).scripts().len(), count);
+    assert!(
+        world.screen.contains(&count.to_string()),
+        "header missing script count {count}:\n{}",
+        world.screen
+    );
+}
+
+#[then("the column shows a separator under the header")]
+async fn has_separator(world: &mut BddWorld) {
+    let geo = tui::geometry(world);
+    assert_eq!(
+        geo.separator.height, 1,
+        "separator rectangle should be one row"
+    );
+    assert!(
+        world.screen.contains('─'),
+        "missing separator:\n{}",
+        world.screen
+    );
+}
+
+#[then("the column does not show a separator")]
+async fn no_separator(world: &mut BddWorld) {
+    assert_eq!(
+        tui::geometry(world).separator.height,
+        0,
+        "separator should have been dropped"
+    );
+}
+
+#[then("the footer shows keycap hints")]
+async fn keycap_hints(world: &mut BddWorld) {
+    assert!(
+        world.screen.contains("enter"),
+        "missing enter keycap:\n{}",
         world.screen
     );
 }

@@ -564,3 +564,63 @@ Feature: List the scripts of the current package.json
       | the sidebar header                  |
       | the empty space below the list      |
       | the full command line at the bottom |
+
+  @v1_1_style
+  Scenario: The column shows package marker, separator, ascii glyphs and keycap footer
+    Given a project at "/work/app" whose package.json has name "app" and declares the scripts:
+      | name  | command           |
+      | dev   | vite              |
+      | build | tsc && vite build |
+      | test  | vitest run        |
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    And the icon set is ascii
+    When the sidebar opens
+    Then the sidebar header shows the package name "app" and the detected package manager
+    And the sidebar header shows the script count 3
+    And every script row shows a play icon
+    And the column shows a separator under the header
+    And the footer shows keycap hints
+
+  @v1_1_style
+  Scenario: Nerd glyphs keep the play-icon gutter clickable
+    Given a project at "/work/app" whose package.json has name "app" and declares the scripts:
+      | name  | command           |
+      | dev   | vite              |
+      | build | tsc && vite build |
+      | test  | vitest run        |
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    And the icon set is nerd
+    And the sidebar is open with the selection on the script "dev"
+    When I left-click column 3 of the row of the script "test"
+    Then the selection is on the script "test"
+    And no run intent has been emitted
+    When I left-click column 2 of the row of the script "test"
+    Then a single run intent is emitted for script "test"
+
+  @v1_1_style
+  Scenario: A tight pane with search open drops the separator
+    Given a project at "/work/app" whose package.json has name "app" and declares the scripts:
+      | name  | command           |
+      | dev   | vite              |
+      | build | tsc && vite build |
+      | test  | vitest run        |
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend interior is 12 columns by 5 rows
+    And the icon set is ascii
+    When the sidebar opens
+    And I press "/"
+    Then the search field is open
+    And the column does not show a separator
+    And the sidebar lists 3 scripts
+
+  @v1_1_style
+  Scenario: Long names still show a play icon with nerd glyphs
+    Given the TestBackend is 32 columns wide and 24 rows tall
+    And the icon set is nerd
+    And a project at "/work/app" whose package.json has name "app" and declares a script whose name is longer than the column
+    And the origin pane foreground cwd is "/work/app"
+    When the sidebar opens
+    Then that name is cut with an ellipsis
+    And the row still shows its play icon

@@ -2,8 +2,9 @@ herdr-npm
 =========
 
 This plugin is MIT-licensed. The socket client, split-then-swap left dock,
-and column resize math are adapted from herdr-sidebar 0.13.0
-(commit 1a5d37ef84edc91e5b3d3d4e39daa32952e6ecf2), which is also MIT:
+column resize math, Nerd Font presence heuristic, and a useful subset of
+the VS Code-derived palette / keycap chips are adapted from herdr-sidebar
+0.13.0 (commit 1a5d37ef84edc91e5b3d3d4e39daa32952e6ecf2), which is also MIT:
 
 MIT License
 

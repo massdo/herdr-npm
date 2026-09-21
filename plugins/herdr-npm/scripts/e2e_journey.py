@@ -127,7 +127,7 @@ def open_sidebar(working):
     focus(working)
     toggle()
     pane = wait(sidebar, "sidebar did not open")["pane_id"]
-    wait(lambda: "h/l scroll" in read(pane), "catalogue did not render")
+    wait(lambda: "dev" in read(pane) and "app" in read(pane), "catalogue did not render")
     return pane
 
 
@@ -143,7 +143,7 @@ def prove_name_click_does_not_launch(npm):
     argv_file = Path(env("ARGV"))
     argv_file.unlink(missing_ok=True)
     before = {t["tab_id"] for t in tabs()}
-    sgr_click(npm, 5, 3)
+    sgr_click(npm, 5, 4)
     time.sleep(0.3)
     assert not argv_file.is_file(), "name click wrote argv"
     assert {t["tab_id"] for t in tabs()} == before, "name click created a tab"
@@ -194,19 +194,33 @@ def prove_search(npm):
     print("search_filter_and_launch_ok", flush=True)
 
 
+def prove_style(npm):
+    layout = data("pane", "layout", "--pane", npm)["layout"]["panes"]
+    rect = next(p["rect"] for p in layout if p["pane_id"] == npm)
+    width = int(rect["width"])
+    assert 28 <= width <= 40, f"npm pane width {width} is not near 32 columns"
+    text = read(npm)
+    assert "app" in text and "dev" in text, text
+    assert "enter" in text.lower(), text
+    if os.environ.get("HERDR_NPM_ICONS") == "ascii":
+        assert ">" in text and "#" in text, text
+    print("style_case_ok", flush=True)
+
+
 def launch(npm, script, click=False):
     argv_file = Path(env("ARGV"))
     argv_file.unlink(missing_ok=True)
     before = {t["tab_id"] for t in tabs()}
     if click:
         # SGR column 2 is the play-icon gutter (1-based); column 5 is the name.
-        sgr_click(npm, 2, 3)
+        # Row 4 is the first script: border, header, separator, then the list.
+        sgr_click(npm, 2, 4)
     else:
         keys(npm, "j")
         # The command footer, not a row anywhere in the list, proves selection.
         def build_selected():
             lines = read(npm).splitlines()
-            return any(i > 0 and "h/l scroll" in line and "vite build" in lines[i-1]
+            return any(i > 0 and "enter" in line.lower() and "vite build" in lines[i-1]
                        for i, line in enumerate(lines))
         wait(build_selected, "j did not select build")
         keys(npm, "Enter")
@@ -282,6 +296,9 @@ def main(client):
         prove_search(npm)
         print("search_case_ok", flush=True)
         return
+    if case_name() == "style":
+        prove_style(npm)
+        return
     if case_name() not in ("", "all"):
         raise AssertionError(f"unknown HERDR_NPM_E2E_CASE={case_name()!r}")
 
@@ -318,7 +335,7 @@ def main(client):
     settled_layout(working)
     client.shortcut()
     npm = wait(sidebar, "shortcut did not reopen sidebar")["pane_id"]
-    wait(lambda: "h/l scroll" in read(npm), "reopened sidebar not ready")
+    wait(lambda: "dev" in read(npm) and "app" in read(npm), "reopened sidebar not ready")
     keys(npm, "q")
     wait(lambda: all(p["pane_id"] != npm for p in panes()), "q did not close sidebar")
     print("shortcut_and_q_ok", flush=True)

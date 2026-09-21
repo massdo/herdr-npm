@@ -1,5 +1,6 @@
 pub mod app;
 pub mod keymap;
+pub mod theme;
 pub mod view;
 
 use std::io::{self, stdout};
@@ -33,7 +34,10 @@ pub fn run(process: ProcessEnv) -> Result<(), AppError> {
             process.tui_origin.cwd.clone(),
         ),
     );
-    let mut app = SidebarApp::new(listed);
+    let mut app = SidebarApp::with_theme(
+        listed,
+        self::theme::Theme::resolve(process.icons.as_deref(), self::theme::nerd_font_installed()),
+    );
     app.workspace_id = process.tui_origin.workspace_id.clone().unwrap_or_default();
     let herdr = HerdrSocket::new(process.socket_path.clone());
     let mut terminal = setup()?;

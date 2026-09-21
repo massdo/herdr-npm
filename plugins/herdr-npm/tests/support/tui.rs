@@ -74,7 +74,7 @@ pub fn open_sidebar(world: &mut BddWorld) {
         &project,
         &origin_for_paths(world.foreground_cwd.clone(), world.start_cwd.clone()),
     );
-    let mut app = SidebarApp::new(listed);
+    let mut app = SidebarApp::with_theme(listed, world.theme);
     world.names_at_open = app
         .scripts()
         .iter()

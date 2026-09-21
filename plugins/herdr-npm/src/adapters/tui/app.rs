@@ -2,17 +2,16 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
 use ratatui::layout::Rect;
 use unicode_width::UnicodeWidthChar;
 
+use super::theme::{FOOTER_HELP, Theme};
 use crate::application::list_scripts::ListedScripts;
 use crate::domain::CWD_FALLBACK_NOTE;
 use crate::domain::catalog::{PackageCatalog, RunIntent, Script};
 use crate::domain::error::AppError;
 use crate::domain::fuzzy::{FuzzyMatch, filter_names};
 
-pub const PLAY_ICON: &str = "▶";
 pub const MIN_INNER_COLS: u16 = 12;
 pub const MIN_INNER_ROWS: u16 = 4;
 pub const WHEEL_LINES: isize = 3;
-pub const MAGNIFIER_ICON: &str = "/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
@@ -67,10 +66,15 @@ pub struct SidebarApp {
     pub workspace_id: String,
     pub launch_error: Option<AppError>,
     pub search: SearchState,
+    pub theme: Theme,
 }
 
 impl SidebarApp {
     pub fn new(listed: ListedScripts) -> Self {
+        Self::with_theme(listed, Theme::ascii())
+    }
+
+    pub fn with_theme(listed: ListedScripts, theme: Theme) -> Self {
         let script_len = listed
             .catalog
             .as_ref()
@@ -87,6 +91,7 @@ impl SidebarApp {
             workspace_id: String::new(),
             launch_error: None,
             search: SearchState::for_len(script_len),
+            theme,
         }
     }
 
@@ -123,6 +128,8 @@ impl SidebarApp {
             self.inner,
             self.status_lines().len(),
             self.search.is_editing(),
+            self.search_available(),
+            self.theme.magnifier_cols(),
             self.search_available(),
         )
     }
@@ -195,10 +202,10 @@ impl SidebarApp {
         let remaining = self.inner.height.saturating_sub(2 + search_h) as usize;
         if lines.is_empty() {
             if remaining >= 1 {
-                lines.push("h/l scroll".into());
+                lines.push(FOOTER_HELP.into());
             }
         } else if remaining.saturating_sub(lines.len()) > 1 {
-            lines.insert(0, "h/l scroll".into());
+            lines.insert(0, FOOTER_HELP.into());
         }
         lines.truncate(remaining);
         lines

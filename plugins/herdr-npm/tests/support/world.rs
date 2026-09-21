@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use cucumber::World;
 use herdr_npm::adapters::tui::app::SidebarApp;
+use herdr_npm::adapters::tui::theme::Theme;
 use herdr_npm::application::toggle_sidebar::ToggleOutcome;
 use herdr_npm::domain::error::AppError;
 use herdr_npm::domain::ids::PaneId;
@@ -31,6 +32,7 @@ pub struct BddWorld {
     pub backend_height: u16,
     pub size_is_interior: bool,
     pub app: Option<SidebarApp>,
+    pub theme: Theme,
     pub screen: String,
     pub last_pkg: Option<String>,
     pub long_field: Option<String>,
@@ -76,6 +78,7 @@ impl Default for BddWorld {
             backend_height: 24,
             size_is_interior: false,
             app: None,
+            theme: Theme::ascii(),
             screen: String::new(),
             last_pkg: None,
             long_field: None,
