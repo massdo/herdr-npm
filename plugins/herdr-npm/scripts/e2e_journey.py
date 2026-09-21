@@ -230,6 +230,8 @@ if __name__ == "__main__":
         main()
     except Exception:
         # Preserve useful CI evidence before the shell removes the isolated profile.
+        print("== attached client ==", flush=True)
+        print(Path(env("CLIENT_LOG")).read_bytes()[-6000:].decode("utf-8", "replace"))
         print("== failure panes ==", flush=True)
         try:
             print(herdr("plugin", "log", "list", "--plugin", "herdr-npm", "--limit", "5"))
