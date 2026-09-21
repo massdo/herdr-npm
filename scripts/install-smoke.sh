@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fresh-profile install from a published git SHA.
-# Usage: sh plugins/herdr-npm/scripts/install-smoke.sh <SHA>
+# Usage: sh scripts/install-smoke.sh <SHA>
 set -eu
 
 SHA=${1:-}
@@ -75,8 +75,8 @@ if [ "$SOCKET" = "$USER_SOCK" ]; then
   exit 1
 fi
 
-echo "== plugin install massdo/herdr-npm/plugins/herdr-npm --ref $SHA =="
-herdr --session "$SESSION" plugin install massdo/herdr-npm/plugins/herdr-npm --ref "$SHA" --yes
+echo "== plugin install massdo/herdr-npm --ref $SHA =="
+herdr --session "$SESSION" plugin install massdo/herdr-npm --ref "$SHA" --yes
 herdr --session "$SESSION" plugin list
 herdr --session "$SESSION" config check
 

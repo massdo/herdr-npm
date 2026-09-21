@@ -1,11 +1,10 @@
 #!/bin/sh
 set -eu
 
-PLUGIN_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-REPO_DIR=$(CDPATH= cd -- "$PLUGIN_DIR/../.." && pwd)
-MANIFEST="$PLUGIN_DIR/Cargo.toml"
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+MANIFEST="$ROOT/Cargo.toml"
 
-cd "$REPO_DIR"
+cd "$ROOT"
 
 run_features() {
   tags=$1

@@ -3,9 +3,9 @@
 Depuis la racine du dépôt :
 
 ```sh
-sh plugins/herdr-npm/scripts/check.sh all
-sh plugins/herdr-npm/scripts/e2e.sh
-sh plugins/herdr-npm/scripts/install-smoke.sh <commit>
+sh scripts/check.sh all
+sh scripts/e2e.sh
+sh scripts/install-smoke.sh <commit>
 ```
 
 - Cucumber vérifie les règles de catalogue, gestionnaire, navigation, lancement,
