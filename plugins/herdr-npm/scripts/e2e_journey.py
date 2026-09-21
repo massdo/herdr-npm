@@ -88,7 +88,7 @@ def open_sidebar(working):
 
 def shortcut():
     # A real prefix chord through the attached Herdr client.
-    for raw in ["02", "1b5b3131353b3275"]:
+    for raw in ["02", "53"]:
         fd = os.open(env("PTY_CTL"), os.O_WRONLY | os.O_NONBLOCK)
         try:
             os.write(fd, f"key {raw}\n".encode())
