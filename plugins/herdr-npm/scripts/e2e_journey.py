@@ -187,35 +187,20 @@ def prove_wheel(npm, client):
     assert read(npm) == after_up, "same-size redraw changed the scrolled window"
     print("pane_sgr_wheel_decode_ok", flush=True)
 
-    layout = data("pane", "layout", "--pane", npm)["layout"]["panes"]
-    rect = next(p["rect"] for p in layout if p["pane_id"] == npm)
-    # Pane PTY SGR is local (row 4 = first script). The attached client
-    # includes a tab bar: layout height is 39 in a 40-row terminal, so
-    # screen SGR is shifted down by that chrome. Wheel on the header is a
-    # no-op by contract, so the extra row is required to hit the list.
-    chrome = 40 - int(rect["height"])
-    col = int(rect["x"]) + 2
-    row = int(rect["y"]) + 4 + chrome
+    layout = data("pane", "layout", "--pane", npm)["layout"]
+    rect = next(p["rect"] for p in layout["panes"] if p["pane_id"] == npm)
+    # The 120x40 client adds its native sidebar and tab bar outside the
+    # daemon's layout. Herdr also adds a one-cell pane border around the PTY.
+    col = 120 - int(layout["area"]["width"]) + int(rect["x"]) + 1 + 2
+    row = 40 - int(layout["area"]["height"]) + int(rect["y"]) + 1 + 4
     focus_pane(npm)
     before_client = read(npm)
     os.write(client.master, f"\x1b[<65;{col};{row}M".encode())
-    routed = False
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        if read(npm) != before_client:
-            routed = True
-            break
-        time.sleep(0.1)
-    if routed:
-        print("client_pty_wheel_routing_ok", flush=True)
-    else:
-        print(
-            "client_pty_wheel_routing_missing: "
-            "herdr 0.9.1 attached client did not forward a PTY SGR wheel "
-            f"at col={col} row={row} to the npm pane; "
-            "pane send-text remains the TUI decode proof only",
-            flush=True,
-        )
+    wait(
+        lambda: read(npm) != before_client,
+        f"attached client did not route wheel at col={col} row={row} to the npm pane",
+    )
+    print("client_pty_wheel_routing_ok", flush=True)
     assert before_tabs == {t["tab_id"] for t in tabs()}, "routed wheel created a tab"
 
 
@@ -314,6 +299,11 @@ def main(client):
                     "explorer did not open")["pane_id"]
     working = next(p["pane_id"] for p in panes() if not is_explorer(p))
     before = settled_layout(explorer)
+    if case_name() == "v1_1":
+        # Leave enough working width for the new npm pane to need shrinking.
+        # Resizing npm's left edge would otherwise move the explorer boundary.
+        herdr("pane", "resize", "--pane", explorer, "--direction", "left", "--amount", "0.08")
+        before = settled_layout(explorer)
     explorer_rect = next(p["rect"] for p in before if p["pane_id"] == explorer)
     npm = open_sidebar(working)
     layout = settled_layout(npm)

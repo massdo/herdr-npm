@@ -16,6 +16,7 @@ Product behavior is documented in README.md and the Gherkin files. This file rec
 
 - Left dock: `plugin.pane.open` split `right` on the working-pane target, then `pane.swap` with that target, then `pane.focus`. `plugin.pane.focus` only accepts plugin-managed panes, so returning focus to the working pane after close uses `pane.focus`.
 - Preferred outer width 32 columns, clamped to about 15–50% of the local horizontal split via `pane.resize` ratio deltas (same share bounds as herdr-sidebar 0.13.0).
+- Grow with `right` on npm; shrink with `left` on the working pane. Herdr chooses the requested edge, so `left` on npm can resize the explorer split instead of the npm/working split.
 - Height follows the target pane. Full-tab-height repair (temp tab / reparent) is not V1.
 - Working target: leftmost then highest then pane id in the origin tab, excluding herdr-npm and the herdr-sidebar explorer (`herdr-sidebar-explorer` token, or labels `Sidebar`/`Explorer`).
 

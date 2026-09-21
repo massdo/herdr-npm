@@ -60,10 +60,18 @@ pub fn open_empty_sidebar<H: HerdrPort>(
 
     match herdr.pane_layout(&opened.pane_id) {
         Ok(layout) => {
-            if let Some(step) = preferred_left_resize(&layout, opened.pane_id.as_str())
-                && let Err(error) = herdr.resize_pane(&opened.pane_id, step.direction, step.amount)
-            {
-                return Err(cleanup(herdr, &opened.pane_id, error));
+            if let Some(step) = preferred_left_resize(&layout, opened.pane_id.as_str()) {
+                // Herdr resizes the edge in the requested direction. Shrink
+                // from the working pane's left edge so an explorer to npm's
+                // left cannot become the resize target.
+                let resize_target = if step.direction == "left" {
+                    target.id()
+                } else {
+                    opened.pane_id.clone()
+                };
+                if let Err(error) = herdr.resize_pane(&resize_target, step.direction, step.amount) {
+                    return Err(cleanup(herdr, &opened.pane_id, error));
+                }
             }
         }
         Err(error) => return Err(cleanup(herdr, &opened.pane_id, error)),
