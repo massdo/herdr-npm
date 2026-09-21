@@ -212,6 +212,7 @@ echo "== workspace =="
 herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label e2e --no-focus >/dev/null
 
 echo "== PTY journey =="
+# HERDR_NPM_E2E_CASE=icon limits the attached journey to the icon/name click proof.
 python3 "$PLUGIN_DIR/scripts/e2e_journey.py"
 echo "journey_exit=0"
 

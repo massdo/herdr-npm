@@ -8,6 +8,23 @@ use unicode_width::UnicodeWidthStr;
 use super::app::{PLAY_ICON, SidebarApp};
 use crate::domain::error::AppError;
 
+/// Play glyph plus the following spacer. Shared by `format_row`, `row_zone`,
+/// and the mouse hit-test; do not hard-code `1` on one side only.
+pub const ICON_GUTTER_COLS: u16 = 2;
+
+/// Rectangles actually painted inside the pane border.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColumnGeometry {
+    pub inner: Rect,
+    pub header: Rect,
+    pub magnifier: Rect,
+    pub search: Rect,
+    pub list: Rect,
+    pub command: Rect,
+    pub status: Rect,
+    pub icon_gutter_width: u16,
+}
+
 pub fn ellipsize(text: &str, max_cells: usize) -> String {
     if max_cells == 0 {
         return String::new();
@@ -30,6 +47,74 @@ pub fn ellipsize(text: &str, max_cells: usize) -> String {
     }
     out.push('…');
     out
+}
+
+pub fn column_geometry(inner: Rect, status_line_count: usize) -> ColumnGeometry {
+    let header_h = 1u16.min(inner.height);
+    let command_h = 1u16.min(inner.height.saturating_sub(header_h));
+    let status_h =
+        (status_line_count as u16).min(inner.height.saturating_sub(header_h + command_h));
+    let list_h = inner
+        .height
+        .saturating_sub(header_h + command_h + status_h)
+        .max(1)
+        .min(inner.height.saturating_sub(header_h));
+
+    let header = Rect::new(inner.x, inner.y, inner.width, header_h);
+    let list = Rect::new(
+        inner.x,
+        inner.y.saturating_add(header.height),
+        inner.width,
+        list_h,
+    );
+    let command = Rect::new(
+        inner.x,
+        list.y.saturating_add(list.height),
+        inner.width,
+        command_h,
+    );
+    let status = Rect::new(
+        inner.x,
+        command.y.saturating_add(command.height),
+        inner.width,
+        status_h,
+    );
+    ColumnGeometry {
+        inner,
+        header,
+        magnifier: Rect::new(0, 0, 0, 0),
+        search: Rect::new(0, 0, 0, 0),
+        list,
+        command,
+        status,
+        icon_gutter_width: ICON_GUTTER_COLS,
+    }
+}
+
+impl ColumnGeometry {
+    pub fn script_index(
+        &self,
+        column: u16,
+        row: u16,
+        list_offset: usize,
+        script_count: usize,
+    ) -> Option<usize> {
+        if !self
+            .list
+            .contains(ratatui::layout::Position { x: column, y: row })
+        {
+            return None;
+        }
+        let index = list_offset + (row - self.list.y) as usize;
+        (index < script_count).then_some(index)
+    }
+
+    pub fn hits_icon_gutter(&self, column: u16, row: u16) -> bool {
+        if row < self.list.y || row >= self.list.y.saturating_add(self.list.height) {
+            return false;
+        }
+        column >= self.list.x && column < self.list.x.saturating_add(self.icon_gutter_width)
+    }
 }
 
 pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
@@ -57,6 +142,7 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
     }
 
     let catalog = app.catalog().expect("ok catalog");
+    let geo = column_geometry(inner, app.status_lines().len());
     let mut lines: Vec<Line> = Vec::new();
     let header = format!("{}  {}", catalog.display_name, catalog.manager.as_str());
     lines.push(Line::from(Span::styled(
@@ -64,7 +150,7 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
         Style::default().add_modifier(Modifier::BOLD),
     )));
 
-    let list_h = app.list_height();
+    let list_h = geo.list.height as usize;
     let scripts = &catalog.scripts;
     let visible = scripts
         .iter()
@@ -97,10 +183,11 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
 
 fn format_row(script: &crate::domain::catalog::Script, width: usize) -> String {
     let icon = PLAY_ICON;
-    let rest = width.saturating_sub(icon.width() + 1);
+    let gutter = ICON_GUTTER_COLS as usize;
+    let rest = width.saturating_sub(gutter);
     let name_budget = (rest / 3).max(1);
     let name = ellipsize(&script.name, name_budget);
-    let used = icon.width() + 1 + name.width();
+    let used = gutter + name.width();
     let cmd_budget = width.saturating_sub(used + 1);
     let command = ellipsize(&script.command, cmd_budget);
     format!("{icon} {name} {command}")
@@ -125,7 +212,7 @@ fn scroll_text(text: &str, offset: usize, width: usize) -> String {
 
 pub fn row_zone(inner: Rect, column: u16) -> &'static str {
     let x = column.saturating_sub(inner.x);
-    if x <= 1 {
+    if x < ICON_GUTTER_COLS {
         "play icon"
     } else if x < inner.width / 3 {
         "script name"
@@ -133,5 +220,43 @@ pub fn row_zone(inner: Rect, column: u16) -> &'static str {
         "command text"
     } else {
         "trailing space"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::catalog::Script;
+
+    #[test]
+    fn icon_gutter_stops_before_the_script_name() {
+        let inner = Rect::new(1, 1, 30, 22);
+        let geo = column_geometry(inner, 1);
+        let row = geo.list.y;
+        let last_icon = inner.x + ICON_GUTTER_COLS - 1;
+        let first_name = inner.x + ICON_GUTTER_COLS;
+        assert_eq!(geo.list.y, inner.y + 1);
+        assert!(geo.hits_icon_gutter(inner.x, row));
+        assert!(geo.hits_icon_gutter(last_icon, row));
+        assert!(!geo.hits_icon_gutter(first_name, row));
+        assert_eq!(
+            geo.script_index(first_name, row, 0, 3),
+            Some(0),
+            "name column is still on the first list row"
+        );
+
+        let rendered = format_row(
+            &Script {
+                name: "test".into(),
+                command: "vitest".into(),
+            },
+            inner.width as usize,
+        );
+        assert_eq!(
+            rendered.chars().take(2).collect::<String>(),
+            format!("{PLAY_ICON} "),
+            "formatted gutter is two cells: glyph plus spacer"
+        );
+        assert_eq!(PLAY_ICON.width() + 1, ICON_GUTTER_COLS as usize);
     }
 }

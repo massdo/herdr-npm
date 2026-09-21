@@ -28,23 +28,34 @@ Feature: Run a script in a new background tab
     And the package manager receives a single script argument "dev"
     And the working directory of the new tab is "/work/app"
 
-  Scenario Outline: A single left click anywhere on the row runs the script
+  @v1_1_icon
+  Scenario Outline: A left click on the play icon runs the script
     When I left-click the <zone> of the row of the script "test"
     Then a new tab is created in the workspace "main" with focus false
     And the package manager "npm" is invoked in "/work/app"
     And the package manager receives a single script argument "test"
     And the selection moves to the script "test"
 
-    Examples: the whole row is the hit area, the play icon is only an affordance
+    Examples:
+      | zone      |
+      | play icon |
+
+  @v1_1_icon
+  Scenario Outline: A left click elsewhere on the row selects without running
+    When I left-click the <zone> of the row of the script "test"
+    Then no tab is created
+    And the selection moves to the script "test"
+
+    Examples:
       | zone           |
-      | play icon      |
       | script name    |
       | command text   |
       | trailing space |
 
+  @v1_1_icon
   Scenario: A single mouse down is enough, release does not launch again
     Given the selection is on the script "dev"
-    When I left-click the row of the script "test"
+    When I left-click the play icon of the row of the script "test"
     And I release the mouse on the row of the script "test"
     Then exactly 1 tab has been created in the workspace "main"
     And the package manager receives a single script argument "test"

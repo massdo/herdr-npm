@@ -74,9 +74,9 @@ impl SidebarApp {
     }
 
     pub fn list_height(&self) -> usize {
-        (self.inner.height as usize)
-            .saturating_sub(2 + self.status_lines().len())
-            .max(1)
+        super::view::column_geometry(self.inner, self.status_lines().len())
+            .list
+            .height as usize
     }
 
     /// Reserve visible footer rows for launch errors and cwd fallback notices.
@@ -194,31 +194,15 @@ impl SidebarApp {
             return;
         };
         self.select_index(index);
-        self.emit_run();
+        let geo = super::view::column_geometry(self.inner, self.status_lines().len());
+        if geo.hits_icon_gutter(mouse.column, mouse.row) {
+            self.emit_run();
+        }
     }
 
     pub fn row_at(&self, column: u16, row: u16) -> Option<usize> {
-        if column < self.inner.x || row < self.inner.y {
-            return None;
-        }
-        let inner_y = row.saturating_sub(self.inner.y);
-        let inner_x = column.saturating_sub(self.inner.x);
-        if inner_x >= self.inner.width {
-            return None;
-        }
-        if inner_y == 0 {
-            return None;
-        }
-        if inner_y as usize > self.list_height() {
-            return None;
-        }
-        let list_y = inner_y.saturating_sub(1) as usize;
-        let index = self.list_offset + list_y;
-        if index < self.scripts().len() {
-            Some(index)
-        } else {
-            None
-        }
+        let geo = super::view::column_geometry(self.inner, self.status_lines().len());
+        geo.script_index(column, row, self.list_offset, self.scripts().len())
     }
 
     pub fn set_inner(&mut self, inner: Rect) {

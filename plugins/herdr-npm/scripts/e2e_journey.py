@@ -131,12 +131,32 @@ def open_sidebar(working):
     return pane
 
 
+def case_name():
+    return os.environ.get("HERDR_NPM_E2E_CASE", "")
+
+
+def sgr_click(pane, col, row):
+    herdr("pane", "send-text", pane, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")
+
+
+def prove_name_click_does_not_launch(npm):
+    argv_file = Path(env("ARGV"))
+    argv_file.unlink(missing_ok=True)
+    before = {t["tab_id"] for t in tabs()}
+    sgr_click(npm, 5, 3)
+    time.sleep(0.3)
+    assert not argv_file.is_file(), "name click wrote argv"
+    assert {t["tab_id"] for t in tabs()} == before, "name click created a tab"
+    print("name_click_does_not_launch_ok", flush=True)
+
+
 def launch(npm, script, click=False):
     argv_file = Path(env("ARGV"))
     argv_file.unlink(missing_ok=True)
     before = {t["tab_id"] for t in tabs()}
     if click:
-        herdr("pane", "send-text", npm, "\x1b[<0;5;3M\x1b[<0;5;3m")
+        # SGR column 2 is the play-icon gutter (1-based); column 5 is the name.
+        sgr_click(npm, 2, 3)
     else:
         keys(npm, "j")
         # The command footer, not a row anywhere in the list, proves selection.
@@ -204,6 +224,14 @@ def main(client):
     assert rects[npm]["x"] >= explorer_rect["x"] + explorer_rect["width"] - 1, rects
     assert rects[working]["x"] > rects[npm]["x"], rects
     print("explorer_docking_ok", flush=True)
+
+    prove_name_click_does_not_launch(npm)
+    if case_name() == "icon":
+        launch(npm, "dev", click=True)
+        print("icon_case_ok", flush=True)
+        return
+    if case_name() not in ("", "all"):
+        raise AssertionError(f"unknown HERDR_NPM_E2E_CASE={case_name()!r}")
 
     dev_tab, dev_pane = launch(npm, "dev", click=True)
     wait(lambda: "VITE_HOLD_START" in read(dev_pane), "dev output missing")

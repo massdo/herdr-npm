@@ -376,6 +376,7 @@ Feature: List the scripts of the current package.json
     Then the sidebar lists 3 scripts
     And the message "Terminal too small" is gone
 
+  @v1_1_icon
   Scenario: Mouse coordinates follow scrolling and resizing
     Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
     And the origin pane foreground cwd is "/work/app"
@@ -388,7 +389,8 @@ Feature: List the scripts of the current package.json
     And I left-click the visible row of the 40th script
     Then a single run intent is emitted for script "s40"
 
-  Scenario Outline: A left click on a visible script row selects it and emits a run intent
+  @v1_1_icon
+  Scenario Outline: A left click on the play icon selects it and emits a run intent
     Given a project at "/work/app" whose package.json has name "app" and declares the scripts:
       | name  | command           |
       | dev   | vite              |
@@ -402,11 +404,44 @@ Feature: List the scripts of the current package.json
     And a single run intent is emitted for script "test"
 
     Examples:
+      | zone      |
+      | play icon |
+
+  @v1_1_icon
+  Scenario Outline: A left click elsewhere on a script row selects it without launching
+    Given a project at "/work/app" whose package.json has name "app" and declares the scripts:
+      | name  | command           |
+      | dev   | vite              |
+      | build | tsc && vite build |
+      | test  | vitest run        |
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    And the sidebar is open with the selection on the script "dev"
+    When I left-click the <zone> of the row of the script "test"
+    Then the selection is on the script "test"
+    And no run intent has been emitted
+
+    Examples:
       | zone           |
-      | play icon      |
       | script name    |
       | command text   |
       | trailing space |
+
+  @v1_1_icon
+  Scenario: The play-icon gutter stops before the script name
+    Given a project at "/work/app" whose package.json has name "app" and declares the scripts:
+      | name  | command           |
+      | dev   | vite              |
+      | build | tsc && vite build |
+      | test  | vitest run        |
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    And the sidebar is open with the selection on the script "dev"
+    When I left-click column 3 of the row of the script "test"
+    Then the selection is on the script "test"
+    And no run intent has been emitted
+    When I left-click column 2 of the row of the script "test"
+    Then a single run intent is emitted for script "test"
 
   Scenario: Mouse release and movement do not emit a run intent
     Given a project at "/work/app" whose package.json has name "app" and declares the scripts:

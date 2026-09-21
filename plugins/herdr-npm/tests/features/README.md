@@ -9,8 +9,10 @@ sh plugins/herdr-npm/scripts/install-smoke.sh <commit>
 ```
 
 - Cucumber vérifie les règles de catalogue, gestionnaire, navigation, lancement,
-  erreurs et toggle. Le système de fichiers et le rendu TestBackend sont réels ;
-  le port Herdr est simulé. Chaque scénario possède un dossier temporaire nettoyé.
+  erreurs et toggle. Un clic sur la gouttière d'icône lance ; un clic sur le nom,
+  la commande ou la fin de ligne sélectionne seulement. Le système de fichiers et
+  le rendu TestBackend sont réels ; le port Herdr est simulé. Chaque scénario
+  possède un dossier temporaire nettoyé.
 - Les tests Rust ciblent les limites techniques : transport socket, verrous,
   géométrie, résolution des fichiers et arguments reçus par les vrais shells.
 - Le parcours Python E2E pilote un seul Herdr 0.9.1 isolé et son client PTY :
@@ -26,3 +28,4 @@ La recette crée une session et une configuration temporaires ; elle les supprim
 `check.sh catalog`, `toggle` et `run` filtrent les scénarios par tag.
 `check.sh harness` exécute seulement Cucumber. Les steps manquants et les
 sélections vides échouent ; le résumé Cucumber fait foi pour le nombre exécuté.
+Le tag `@v1_1_icon` isole les scénarios de lancement par gouttière d'icône.

@@ -553,10 +553,18 @@ async fn click_fortieth(world: &mut BddWorld) {
     tui::left_click(world, column, row);
 }
 
-#[when(regex = r#"^I left-click the (.+) of the row of the script "([^"]+)"$"#)]
+#[when(
+    regex = r#"^I left-click the (play icon|script name|command text|trailing space) of the row of the script "([^"]+)"$"#
+)]
 async fn click_zone(world: &mut BddWorld, zone: String, name: String) {
     let row = tui::script_row(world, &name);
     let column = tui::zone_column(world, zone.trim());
+    tui::left_click(world, column, row);
+}
+
+#[when(regex = r#"^I left-click column (\d+) of the row of the script "([^"]+)"$"#)]
+async fn click_explicit_column(world: &mut BddWorld, column: u16, name: String) {
+    let row = tui::script_row(world, &name);
     tui::left_click(world, column, row);
 }
 
@@ -579,13 +587,11 @@ async fn move_on_row(world: &mut BddWorld, name: String) {
 )]
 async fn click_outside(world: &mut BddWorld, target: String) {
     let app = require_app(world);
-    let inner = app.inner;
+    let geo = tui::geometry(world);
     let (column, row) = match target.trim() {
-        "the sidebar header" => (inner.x + 1, inner.y),
-        "the empty space below the list" => (inner.x + 1, inner.y + 1 + 8),
-        "the full command line at the bottom" => {
-            (inner.x + 1, inner.y + inner.height.saturating_sub(2))
-        }
+        "the sidebar header" => (geo.header.x, geo.header.y),
+        "the empty space below the list" => (geo.list.x, geo.list.y + app.scripts().len() as u16),
+        "the full command line at the bottom" => (geo.command.x, geo.command.y),
         other => panic!("unhandled click target {other}"),
     };
     tui::left_click(world, column, row);

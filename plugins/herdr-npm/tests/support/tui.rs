@@ -4,7 +4,7 @@ use crossterm::event::{
 use herdr_npm::adapters::fs_project::FsProject;
 use herdr_npm::adapters::tui::app::SidebarApp;
 use herdr_npm::adapters::tui::keymap;
-use herdr_npm::adapters::tui::view;
+use herdr_npm::adapters::tui::view::{self, ColumnGeometry, ICON_GUTTER_COLS};
 use herdr_npm::application::list_scripts::{list_scripts, origin_for_paths};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -164,6 +164,11 @@ pub fn mouse_move(world: &mut BddWorld, column: u16, row: u16) {
     draw(world);
 }
 
+pub fn geometry(world: &BddWorld) -> ColumnGeometry {
+    let app = world.app.as_ref().expect("sidebar TUI is not open");
+    view::column_geometry(app.inner, app.status_lines().len())
+}
+
 pub fn script_row(world: &BddWorld, name: &str) -> u16 {
     let app = world.app.as_ref().expect("sidebar TUI is not open");
     let index = app
@@ -171,21 +176,38 @@ pub fn script_row(world: &BddWorld, name: &str) -> u16 {
         .iter()
         .position(|script| script.name == name)
         .unwrap_or_else(|| panic!("script {name} is not listed"));
+    let geo = geometry(world);
     assert!(
-        index >= app.list_offset && index < app.list_offset + app.list_height(),
+        index >= app.list_offset && index < app.list_offset + geo.list.height as usize,
         "script {name} is not in the visible window"
     );
-    app.inner.y + 1 + (index - app.list_offset) as u16
+    geo.list.y + (index - app.list_offset) as u16
 }
 
 pub fn zone_column(world: &BddWorld, zone: &str) -> u16 {
     let app = world.app.as_ref().expect("sidebar TUI is not open");
-    for column in app.inner.x..app.inner.x.saturating_add(app.inner.width) {
+    let geo = geometry(world);
+    let mut found = None;
+    for column in geo.list.x..geo.list.x.saturating_add(geo.list.width) {
         if view::row_zone(app.inner, column) == zone {
-            return column;
+            found = Some(column);
+            break;
         }
     }
-    panic!("no column mapped to zone {zone}");
+    let column = found.unwrap_or_else(|| panic!("no column mapped to zone {zone}"));
+    let gutter_end = geo.list.x + ICON_GUTTER_COLS;
+    match zone {
+        "play icon" => assert!(
+            column < gutter_end,
+            "play icon column {column} is outside the two-cell gutter ending at {gutter_end}"
+        ),
+        "script name" | "command text" | "trailing space" => assert!(
+            column >= gutter_end,
+            "{zone} column {column} is inside the two-cell icon gutter"
+        ),
+        _ => {}
+    }
+    column
 }
 
 pub fn close_with_q(world: &mut BddWorld) {

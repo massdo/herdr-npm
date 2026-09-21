@@ -198,10 +198,9 @@ async fn sending_recovers(world: &mut BddWorld) {
 
 #[when("I left-click the launch error message")]
 async fn click_launch_error(world: &mut BddWorld) {
-    let app = world.app.as_ref().expect("sidebar");
-    let column = app.inner.x + 1;
-    let row = app.inner.y + app.inner.height - 1;
-    tui::left_click(world, column, row);
+    let geo = tui::geometry(world);
+    let row = geo.status.y + geo.status.height.saturating_sub(1);
+    tui::left_click(world, geo.status.x, row);
 }
 
 #[given("tab creation returns no usable root pane id")]
@@ -217,7 +216,7 @@ async fn divert_workspace(world: &mut BddWorld) {
 #[when(regex = r#"^I left-click the row of the script "([^"]+)"$"#)]
 async fn click_row(world: &mut BddWorld, name: String) {
     let row = tui::script_row(world, &name);
-    let column = tui::zone_column(world, "script name");
+    let column = tui::zone_column(world, "play icon");
     tui::left_click(world, column, row);
 }
 
