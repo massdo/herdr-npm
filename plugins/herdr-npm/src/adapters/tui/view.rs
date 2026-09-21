@@ -269,9 +269,12 @@ fn header_line(
     let pkg = pad_icon(theme.icons.package, ICON_GUTTER_COLS as usize);
     let manager = catalog.manager.as_str();
     let count = catalog.scripts.len().to_string();
-    let suffix = format!("  {manager} {count}");
+    let suffix = ellipsize(
+        &format!("  {manager} {count}"),
+        width.saturating_sub(pkg.width() + mag_width),
+    );
     let name_budget = width.saturating_sub(pkg.width() + suffix.width() + mag_width);
-    let name = ellipsize(&catalog.display_name, name_budget.max(1));
+    let name = ellipsize(&catalog.display_name, name_budget);
     let mut spans = vec![
         Span::styled(pkg, Style::default().fg(pal.accent)),
         Span::styled(
@@ -495,6 +498,25 @@ mod tests {
             .draw(|frame| render(frame, &mut app))
             .expect("draw");
         (app, terminal)
+    }
+
+    #[test]
+    fn narrow_header_keeps_the_search_icon_inside_its_hit_target() {
+        for count in [40, 400] {
+            let mut catalog = listed(&[("dev", "vite")]).catalog.unwrap();
+            catalog.manager = PackageManager::Pnpm;
+            catalog.scripts = vec![catalog.scripts[0].clone(); count];
+            let mut terminal = Terminal::new(TestBackend::new(12, 1)).unwrap();
+            terminal
+                .draw(|frame| {
+                    frame.render_widget(
+                        Paragraph::new(header_line(&catalog, 12, 1, Theme::ascii())),
+                        frame.area(),
+                    );
+                })
+                .unwrap();
+            assert_eq!(terminal.backend().buffer()[(11, 0)].symbol(), "/");
+        }
     }
 
     #[test]
