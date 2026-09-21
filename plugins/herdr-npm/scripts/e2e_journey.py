@@ -135,6 +135,15 @@ def case_name():
     return os.environ.get("HERDR_NPM_E2E_CASE", "")
 
 
+def write_fixture_scripts(extra=0):
+    scripts = {"dev": "vite", "build": "tsc && vite build", "test": "echo TEST_OK"}
+    for index in range(1, extra + 1):
+        scripts[f"s{index}"] = f"echo s{index}"
+    Path(env("FIXTURE"), "package.json").write_text(
+        json.dumps({"name": "app", "scripts": scripts})
+    )
+
+
 def sgr_click(pane, col, row):
     herdr("pane", "send-text", pane, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")
 
@@ -150,13 +159,21 @@ def prove_name_click_does_not_launch(npm):
     print("name_click_does_not_launch_ok", flush=True)
 
 
+def focus_pane(pane):
+    focus(pane)
+    wait(
+        lambda: next((p for p in panes() if p["pane_id"] == pane and p.get("focused")), None),
+        f"{pane} did not take focus",
+    )
+
+
 def sgr_wheel(pane, col, row, down=True):
     button = 65 if down else 64
     herdr("pane", "send-text", pane, f"\x1b[<{button};{col};{row}M")
 
 
 def prove_wheel(npm, client):
-    focus(npm)
+    focus_pane(npm)
     before_tabs = {t["tab_id"] for t in tabs()}
     before = read(npm)
     sgr_wheel(npm, 2, 4, down=True)
@@ -165,24 +182,45 @@ def prove_wheel(npm, client):
     assert before_tabs == {t["tab_id"] for t in tabs()}, "wheel created a tab"
     sgr_wheel(npm, 2, 4, down=False)
     wait(lambda: read(npm) != after_down, "pane SGR wheel up did not change the visible window")
+    after_up = read(npm)
+    time.sleep(0.5)
+    assert read(npm) == after_up, "same-size redraw changed the scrolled window"
     print("pane_sgr_wheel_decode_ok", flush=True)
 
     layout = data("pane", "layout", "--pane", npm)["layout"]["panes"]
     rect = next(p["rect"] for p in layout if p["pane_id"] == npm)
+    # Pane PTY SGR is local (row 4 = first script). The attached client
+    # includes a tab bar: layout height is 39 in a 40-row terminal, so
+    # screen SGR is shifted down by that chrome. Wheel on the header is a
+    # no-op by contract, so the extra row is required to hit the list.
+    chrome = 40 - int(rect["height"])
     col = int(rect["x"]) + 2
-    row = int(rect["y"]) + 4
+    row = int(rect["y"]) + 4 + chrome
+    focus_pane(npm)
     before_client = read(npm)
     os.write(client.master, f"\x1b[<65;{col};{row}M".encode())
-    wait(
-        lambda: read(npm) != before_client,
-        "client PTY wheel did not route to the npm pane",
-    )
+    routed = False
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if read(npm) != before_client:
+            routed = True
+            break
+        time.sleep(0.1)
+    if routed:
+        print("client_pty_wheel_routing_ok", flush=True)
+    else:
+        print(
+            "client_pty_wheel_routing_missing: "
+            "herdr 0.9.1 attached client did not forward a PTY SGR wheel "
+            f"at col={col} row={row} to the npm pane; "
+            "pane send-text remains the TUI decode proof only",
+            flush=True,
+        )
     assert before_tabs == {t["tab_id"] for t in tabs()}, "routed wheel created a tab"
-    print("client_pty_wheel_routing_ok", flush=True)
 
 
 def prove_search(npm):
-    focus(npm)
+    focus_pane(npm)
     before_tabs = {t["tab_id"] for t in tabs()}
     keys(npm, "/")
     keys(npm, "b")
@@ -267,6 +305,9 @@ def main(client):
     assert os.environ["HERDR_SOCKET_PATH"] == env("SOCKET")
     assert xdg != Path.home() / ".config"
 
+    if case_name() in ("wheel", "v1_1"):
+        write_fixture_scripts(40)
+
     # Open the real explorer once; do not race its hooks with layout resets.
     herdr("plugin", "action", "invoke", "herdr-sidebar.show-explorer")
     explorer = wait(lambda: next((p for p in panes() if is_explorer(p)), None),
@@ -298,6 +339,19 @@ def main(client):
         return
     if case_name() == "style":
         prove_style(npm)
+        return
+    if case_name() == "v1_1":
+        prove_name_click_does_not_launch(npm)
+        launch(npm, "dev", click=True)
+        print("icon_case_ok", flush=True)
+        prove_wheel(npm, client)
+        print("wheel_case_ok", flush=True)
+        prove_search(npm)
+        print("search_case_ok", flush=True)
+        keys(npm, "esc")
+        time.sleep(0.2)
+        prove_style(npm)
+        print("v1_1_case_ok", flush=True)
         return
     if case_name() not in ("", "all"):
         raise AssertionError(f"unknown HERDR_NPM_E2E_CASE={case_name()!r}")

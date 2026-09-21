@@ -155,6 +155,10 @@ export PATH="$BIN:$PATH"
 echo "== build plugin =="
 sh "$PLUGIN_DIR/scripts/build.sh"
 
+if { [ "${HERDR_NPM_E2E_CASE:-}" = "style" ] || [ "${HERDR_NPM_E2E_CASE:-}" = "v1_1" ]; } && [ -z "${HERDR_NPM_ICONS:-}" ]; then
+  export HERDR_NPM_ICONS=ascii
+fi
+
 echo "== start isolated server =="
 herdr --session "$SESSION" server >"$SERVER_LOG" 2>&1 &
 echo $! >"$SERVER_PID_FILE"
@@ -213,9 +217,11 @@ herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label e2e --no-fo
 
 echo "== PTY journey =="
 # HERDR_NPM_E2E_CASE=icon limits the attached journey to the icon/name click proof.
+# HERDR_NPM_E2E_CASE=wheel limits it to molette + same-size redraw (needs a long catalogue).
 # HERDR_NPM_E2E_CASE=search limits it to opening search, typing, and launching a hit.
 # HERDR_NPM_E2E_CASE=style checks the 32-column catalogue chrome (ASCII glyphs when forced).
-if [ "${HERDR_NPM_E2E_CASE:-}" = "style" ] && [ -z "${HERDR_NPM_ICONS:-}" ]; then
+# HERDR_NPM_E2E_CASE=v1_1 runs the short V1.1 path: icon/name, wheel, search+launch, style.
+if { [ "${HERDR_NPM_E2E_CASE:-}" = "style" ] || [ "${HERDR_NPM_E2E_CASE:-}" = "v1_1" ]; } && [ -z "${HERDR_NPM_ICONS:-}" ]; then
   export HERDR_NPM_ICONS=ascii
 fi
 python3 "$PLUGIN_DIR/scripts/e2e_journey.py"

@@ -18,6 +18,8 @@ sh plugins/herdr-npm/scripts/install-smoke.sh <commit>
 - Le parcours Python E2E pilote un seul Herdr 0.9.1 isolé et son client PTY :
   cohabitation avec l'explorateur (ouverture automatique désactivée), clic unique, clavier, argv/cwd, focus,
   arrêt du processus, sortie conservée, raccourci, fermeture et redémarrage.
+  `HERDR_NPM_E2E_CASE=v1_1` enchaîne le parcours court V1.1 (icône/nom, molette, recherche, style)
+  sans rejouer la recette V1 entière.
 - Le smoke test installe le plugin depuis GitHub au commit demandé.
 
 Les tests offline nécessitent Rust 1.89, Python 3, npm et pnpm ; les E2E demandent
