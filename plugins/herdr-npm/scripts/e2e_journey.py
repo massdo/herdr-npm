@@ -136,6 +136,17 @@ def pid_alive(pid):
         return False
 
 
+def settled_layout(pane):
+    previous, stable_since = None, time.monotonic()
+    def settled():
+        nonlocal previous, stable_since
+        current = data("pane", "layout", "--pane", pane)["layout"]["panes"]
+        if current != previous:
+            previous, stable_since = current, time.monotonic()
+        return current if time.monotonic() - stable_since >= 0.5 else None
+    return wait(settled, "pane geometry did not settle")
+
+
 def main():
     xdg = Path(env("XDG")).resolve()
     assert env("SESSION").startswith("herdr-npm-e2e-")
@@ -149,13 +160,13 @@ def main():
     explorer = wait(lambda: next((p for p in panes() if is_explorer(p)), None),
                     "explorer did not open")["pane_id"]
     working = next(p["pane_id"] for p in panes() if not is_explorer(p))
-    before = data("pane", "layout", "--pane", explorer)["layout"]["panes"]
+    before = settled_layout(explorer)
     explorer_rect = next(p["rect"] for p in before if p["pane_id"] == explorer)
     npm = open_sidebar(working)
-    layout = data("pane", "layout", "--pane", npm)["layout"]["panes"]
+    layout = settled_layout(npm)
     rects = {p["pane_id"]: p["rect"] for p in layout}
     assert len(layout) == len(before) + 1, layout
-    assert rects[explorer] == explorer_rect, rects
+    assert rects[explorer] == explorer_rect, (before, layout)
     assert rects[npm]["x"] >= explorer_rect["x"] + explorer_rect["width"] - 1, rects
     assert rects[working]["x"] > rects[npm]["x"], rects
     print("explorer_docking_ok", flush=True)
