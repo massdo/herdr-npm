@@ -35,7 +35,8 @@ export HERDR_NPM_E2E_PTY_CTL="$PTY_CTL"
 export HERDR_NPM_E2E_PTY_READY="$PTY_READY"
 export HERDR_NPM_E2E_ROWS=40
 export HERDR_NPM_E2E_COLS=120
-export HERDR_PLUGIN_STATE_DIR="$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
+export HERDR_PLUGIN_STATE_DIR="$XDG_STATE_HOME/herdr/plugins/herdr-npm"
 export XDG_CONFIG_HOME="$XDG"
 export HERDR_CONFIG_PATH="$CONFIG"
 
@@ -73,6 +74,13 @@ fi
 USER_SOCK="${HOME}/.config/herdr/herdr.sock"
 USER_CFG="${HOME}/.config/herdr/config.toml"
 mkdir -p "$XDG/herdr" "$FIXTURE" "$BIN" "$HERDR_PLUGIN_STATE_DIR"
+
+# Keep the real explorer installed, with deterministic preferences and no
+# automatic creation in script tabs. Its actions use Herdr's per-plugin state.
+mkdir -p "$XDG_STATE_HOME/herdr/plugins/herdr-sidebar"
+cat > "$XDG_STATE_HOME/herdr/plugins/herdr-sidebar/state.json" <<'JSON'
+{"auto_open":false,"font_prompt":false,"sidebar_width":32}
+JSON
 
 REAL_NPM=$(command -v npm)
 cat > "$BIN/herdr-e2e-shell" <<EOF

@@ -19,7 +19,8 @@ FIXTURE="$TMP/app"
 
 export XDG_CONFIG_HOME="$XDG"
 export HERDR_CONFIG_PATH="$CONFIG"
-export HERDR_PLUGIN_STATE_DIR="$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
+export HERDR_PLUGIN_STATE_DIR="$XDG_STATE_HOME/herdr/plugins/herdr-npm"
 
 cleanup() {
   status=$?

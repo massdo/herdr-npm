@@ -14,7 +14,7 @@ sh plugins/herdr-npm/scripts/install-smoke.sh <commit>
 - Les tests Rust ciblent les limites techniques : transport socket, verrous,
   géométrie, résolution des fichiers et arguments reçus par les vrais shells.
 - Le parcours Python E2E pilote un seul Herdr 0.9.1 isolé et son client PTY :
-  cohabitation avec l'explorateur, clic unique, clavier, argv/cwd, focus,
+  cohabitation avec l'explorateur (ouverture automatique désactivée), clic unique, clavier, argv/cwd, focus,
   arrêt du processus, sortie conservée, raccourci, fermeture et redémarrage.
 - Le smoke test installe le plugin depuis GitHub au commit demandé.
 
