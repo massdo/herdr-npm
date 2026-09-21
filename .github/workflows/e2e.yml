@@ -47,6 +47,11 @@ jobs:
         env:
           HERDR_SIDEBAR_ROOT: ""
         run: sh plugins/herdr-npm/scripts/e2e.sh
+      - name: V1.1 e2e recipe
+        env:
+          HERDR_SIDEBAR_ROOT: ""
+          HERDR_NPM_E2E_CASE: v1_1
+        run: sh plugins/herdr-npm/scripts/e2e.sh
       - name: install from this SHA
         env:
           GH_TOKEN: ${{ github.token }}

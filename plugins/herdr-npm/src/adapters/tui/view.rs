@@ -406,7 +406,7 @@ fn highlight_name(
             };
             used = used.saturating_sub(last.content.width());
         }
-        if used + 1 <= budget {
+        if used < budget {
             spans.push(Span::raw("…"));
             used += 1;
         }
@@ -495,6 +495,29 @@ mod tests {
             .draw(|frame| render(frame, &mut app))
             .expect("draw");
         (app, terminal)
+    }
+
+    #[test]
+    fn opening_search_keeps_the_last_visible_selection_on_screen() {
+        let (mut app, mut terminal) = paint(Theme::ascii(), 32, 8, |_| {});
+        app.select_index(1);
+        app.open_search();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        let pos = app.visible_pos(app.selected).unwrap();
+        assert!(pos >= app.list_offset && pos < app.list_offset + app.list_height());
+    }
+
+    #[test]
+    fn search_keeps_a_result_row_at_the_minimum_supported_height() {
+        let (mut app, mut terminal) = paint(Theme::ascii(), 32, 6, |_| {});
+        app.open_search();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        assert!(app.list_height() > 0);
+        let geo = app.layout();
+        assert_eq!(
+            terminal.backend().buffer()[(geo.list.x, geo.list.y)].symbol(),
+            ">"
+        );
     }
 
     #[test]

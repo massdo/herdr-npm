@@ -163,9 +163,7 @@ impl SidebarApp {
     }
 
     pub fn selected_script(&self) -> Option<&Script> {
-        if self.visible_pos(self.selected).is_none() {
-            return None;
-        }
+        self.visible_pos(self.selected)?;
         self.scripts().get(self.selected)
     }
 
@@ -199,12 +197,13 @@ impl SidebarApp {
             lines.push(line);
         }
         let search_h = if self.search.is_editing() { 1 } else { 0 };
-        let remaining = self.inner.height.saturating_sub(2 + search_h) as usize;
+        // Keep a header, one result and its command before reserving status rows.
+        let remaining = self.inner.height.saturating_sub(3 + search_h) as usize;
         if lines.is_empty() {
             if remaining >= 1 {
                 lines.push(FOOTER_HELP.into());
             }
-        } else if remaining.saturating_sub(lines.len()) > 1 {
+        } else if remaining > lines.len() {
             lines.insert(0, FOOTER_HELP.into());
         }
         lines.truncate(remaining);
@@ -345,6 +344,7 @@ impl SidebarApp {
             return;
         }
         self.search.mode = SearchMode::Editing;
+        self.ensure_visible();
     }
 
     fn apply_search(&mut self) {

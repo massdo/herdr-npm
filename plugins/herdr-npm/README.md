@@ -55,9 +55,13 @@ If CI or a headless PTY cannot reproduce Ghostty's `cmd+shift+s`, invoke `herdr-
 
 `herdr-npm.toggle` opens or closes the `npm` column on the left of the working pane. Preferred outer width is **32** columns, clamped to about 15–50% of the local split. Height follows the target pane; a pane already at half height keeps that height. The herdr-sidebar explorer is never the split target.
 
-The header shows the package name and `npm`/`pnpm`. Each script row starts with `▶`. `j`/`k` (and arrows) move the selection without wrapping. `h`/`l` scroll the full command on the footer. A too-small pane (under 12 inner columns or 4 rows) shows `Terminal too small` and blocks launch.
+The header shows the package name and `npm`/`pnpm`. Each script row starts with a play icon. `j`/`k` (and arrows) move the selection without wrapping. The mouse wheel scrolls the list without moving the selection. `h`/`l` scroll the full command on the footer. A too-small pane (under 12 inner columns or 4 rows) shows `Terminal too small` and blocks launch.
 
-Enter or a left mouse down on a script row starts `npm run -- <script>` or `pnpm run -- <script>` in a **new tab**, `focus: false`, cwd = package root. The sidebar keeps focus and the frozen catalogue. Closing that tab stops an ordinary recipe process; a normal exit leaves the tab and its output readable. `q` typed in a script tab is not eaten by the sidebar.
+Enter or a left mouse down on a row's play icon starts `npm run -- <script>` or `pnpm run -- <script>` in a **new tab**, `focus: false`, cwd = package root. Clicking the name or command only selects the script. The sidebar keeps focus and the frozen catalogue. Closing that tab stops an ordinary recipe process; a normal exit leaves the tab and its output readable. `q` typed in a script tab is not eaten by the sidebar.
+
+`/`, Ctrl+F or the header search icon opens a fuzzy search on script names. Enter applies the filter and selects its first result; another Enter launches it. Esc clears the search before closing the pane. While editing, letters such as `q`, `j` and `k` are query text.
+
+`HERDR_NPM_ICONS=ascii` or `nerd` forces the glyph set. By default, the plugin checks for an installed Nerd Font; it cannot determine which font the terminal uses.
 
 ## Errors
 

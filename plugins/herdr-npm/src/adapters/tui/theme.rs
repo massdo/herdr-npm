@@ -2,7 +2,7 @@
 //! 0.13.0 (MIT): it asks whether a Nerd Font is installed, not whether the
 //! terminal is using one.
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 use std::time::Duration;
 
 use ratatui::style::Color;
@@ -92,7 +92,7 @@ impl Theme {
     }
 
     pub fn magnifier_cols(self) -> u16 {
-        self.icons.search.width().max(1).min(2) as u16
+        self.icons.search.width().clamp(1, 2) as u16
     }
 }
 
@@ -157,41 +157,59 @@ pub fn probe_nerd_font() -> bool {
             r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
             r"HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
         ];
-        return keys.iter().any(|key| {
+        keys.iter().any(|key| {
             let mut cmd = std::process::Command::new("reg");
             cmd.args(["query", key]);
             bounded_output(&mut cmd)
                 .is_some_and(|out| output_mentions_nerd_font(&String::from_utf8_lossy(&out)))
-        });
+        })
     }
     #[cfg(target_os = "macos")]
     {
-        return macos_font_dirs_mention_nerd_font();
+        macos_font_dirs_mention_nerd_font()
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         let mut cmd = std::process::Command::new("fc-list");
-        return bounded_output(&mut cmd)
-            .is_some_and(|out| output_mentions_nerd_font(&String::from_utf8_lossy(&out)));
+        bounded_output(&mut cmd)
+            .is_some_and(|out| output_mentions_nerd_font(&String::from_utf8_lossy(&out)))
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 fn bounded_output(cmd: &mut std::process::Command) -> Option<Vec<u8>> {
-    let mut child = cmd.stdout(std::process::Stdio::piped()).spawn().ok()?;
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
     let started = std::time::Instant::now();
+    let timeout = Duration::from_millis(400);
+    let mut stdout = child.stdout.take()?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    // Drain while the command is running: fc-list can exceed the pipe capacity.
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let result = std::io::Read::read_to_end(&mut stdout, &mut buf).map(|_| buf);
+        let _ = sender.send(result);
+    });
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => {
-                let mut buf = Vec::new();
-                if let Some(mut stdout) = child.stdout.take() {
-                    let _ = std::io::Read::read_to_end(&mut stdout, &mut buf);
-                }
-                return Some(buf);
+                return receiver
+                    .recv_timeout(timeout.saturating_sub(started.elapsed()))
+                    .ok()?
+                    .ok();
             }
-            Ok(Some(_)) | Err(_) => return None,
-            Ok(None) if started.elapsed() > Duration::from_millis(400) => {
+            Ok(Some(_)) => return None,
+            Err(_) => {
                 let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
                 return None;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
@@ -215,6 +233,25 @@ fn macos_font_dirs_mention_nerd_font() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn font_probe_drains_output_larger_than_a_pipe_buffer() {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "head -c 1048576 /dev/zero; printf 'Nerd Font'"]);
+        let output = bounded_output(&mut command).expect("large font output should not time out");
+        assert!(output.ends_with(b"Nerd Font"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn font_probe_still_times_out_and_reaps_the_child() {
+        let mut command = std::process::Command::new("sleep");
+        command.arg("5");
+        let start = std::time::Instant::now();
+        assert!(bounded_output(&mut command).is_none());
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
 
     #[test]
     fn env_ascii_and_nerd_win_over_the_heuristic() {

@@ -2,7 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use cucumber::{given, then, when};
-use herdr_npm::domain::catalog::{PackageManager, Script};
+use herdr_npm::domain::catalog::PackageManager;
 use herdr_npm::domain::ids::PaneId;
 use herdr_npm::domain::run_command::run_invocation;
 use serde_json::{Map, Value, json};
@@ -58,14 +58,9 @@ fn add_script(world: &mut BddWorld, name: &str, command: &str) {
         serde_json::to_vec_pretty(&Value::Object(map)).unwrap(),
     )
     .unwrap();
-    if let Some(app) = world.app.as_mut()
-        && let Ok(catalog) = app.listed.catalog.as_mut()
-        && !catalog.scripts.iter().any(|script| script.name == name)
-    {
-        catalog.scripts.push(Script {
-            name: name.to_string(),
-            command: command.to_string(),
-        });
+    if world.app.is_some() {
+        // This is fixture setup: open the new catalogue, including its search index.
+        tui::open_sidebar(world);
     }
 }
 
