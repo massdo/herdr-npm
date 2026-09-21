@@ -1,0 +1,35 @@
+[package]
+name = "herdr-npm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "NPM scripts sidebar for Herdr"
+license = "MIT"
+
+[lib]
+name = "herdr_npm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "herdr-npm"
+path = "src/main.rs"
+
+[dependencies]
+crossterm = "0.29"
+ratatui = "0.30"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+unicode-width = "0.2"
+
+[dev-dependencies]
+crossterm = "0.29"
+cucumber = "0.23"
+ratatui = "0.30"
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
+unicode-width = "0.2"
+
+[[test]]
+name = "features"
+harness = false
+path = "tests/features.rs"

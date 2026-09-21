@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main, feat/herdr-npm-v1]
+  pull_request:
+
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: pnpm
+        run: npm install -g pnpm@10
+      - name: versions
+        run: |
+          rustc --version
+          cargo --version
+          node --version
+          npm --version
+          pnpm --version
+      - name: offline suite
+        run: sh plugins/herdr-npm/scripts/check.sh all

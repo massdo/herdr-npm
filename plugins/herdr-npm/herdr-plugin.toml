@@ -1,0 +1,27 @@
+# herdr-npm — NPM Scripts column for Herdr.
+# Copied in spirit from herdr-sidebar 0.13.0 (MIT): one binary, TUI pane plus
+# a --toggle action. Geometry is documented in README.md; this manifest only
+# declares the action and the managed pane.
+
+id = "herdr-npm"
+name = "herdr-npm"
+version = "0.1.0"
+description = "Column of npm/pnpm scripts for the current package."
+min_herdr_version = "0.9.1"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["/bin/sh", "scripts/build.sh"]
+
+[[panes]]
+id = "sidebar"
+title = "npm"
+placement = "split"
+command = ["./target/release/herdr-npm"]
+
+[[actions]]
+id = "toggle"
+title = "Toggle npm scripts"
+description = "Open or close the npm scripts sidebar in the current tab."
+command = ["./target/release/herdr-npm", "--toggle"]
+contexts = ["workspace"]
