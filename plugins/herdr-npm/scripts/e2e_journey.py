@@ -198,6 +198,9 @@ def main():
     focus(npm)
     shortcut()
     wait(lambda: sidebar() is None, "shortcut did not close sidebar")
+    wait(lambda: any(p["pane_id"] == working and p["focused"] for p in panes()),
+         "closing sidebar did not return focus to the working pane")
+    settled_layout(working)
     shortcut()
     npm = wait(sidebar, "shortcut did not reopen sidebar")["pane_id"]
     wait(lambda: "h/l scroll" in read(npm), "reopened sidebar not ready")
@@ -229,6 +232,7 @@ if __name__ == "__main__":
         # Preserve useful CI evidence before the shell removes the isolated profile.
         print("== failure panes ==", flush=True)
         try:
+            print(herdr("plugin", "log", "list", "--plugin", "herdr-npm", "--limit", "5"))
             for pane in panes():
                 print(pane, flush=True)
                 print(read(pane["pane_id"]), flush=True)

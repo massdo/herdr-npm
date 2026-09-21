@@ -79,7 +79,7 @@ mkdir -p "$XDG/herdr" "$FIXTURE" "$BIN" "$HERDR_PLUGIN_STATE_DIR"
 # automatic creation in script tabs. Its actions use Herdr's per-plugin state.
 mkdir -p "$XDG_STATE_HOME/herdr/plugins/herdr-sidebar"
 cat > "$XDG_STATE_HOME/herdr/plugins/herdr-sidebar/state.json" <<'JSON'
-{"auto_open":false,"font_prompt":false,"sidebar_width":32}
+{"auto_open":false,"font_prompt":true,"sidebar_width":32}
 JSON
 
 REAL_NPM=$(command -v npm)
