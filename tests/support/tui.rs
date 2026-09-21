@@ -1,0 +1,275 @@
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use herdr_npm::adapters::fs_project::FsProject;
+use herdr_npm::adapters::tui::app::SidebarApp;
+use herdr_npm::adapters::tui::keymap;
+use herdr_npm::adapters::tui::view::{self, ColumnGeometry, ICON_GUTTER_COLS};
+use herdr_npm::application::list_scripts::{list_scripts, origin_for_paths};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+use unicode_width::UnicodeWidthStr;
+
+use super::world::BddWorld;
+
+pub fn backend_size(world: &BddWorld) -> (u16, u16) {
+    if world.size_is_interior {
+        (
+            world.backend_width.saturating_add(2),
+            world.backend_height.saturating_add(2),
+        )
+    } else {
+        (world.backend_width, world.backend_height)
+    }
+}
+
+pub fn draw(world: &mut BddWorld) {
+    let (width, height) = backend_size(world);
+    let Some(app) = world.app.as_mut() else {
+        world.screen.clear();
+        return;
+    };
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("TestBackend terminal");
+    terminal
+        .draw(|frame| view::render(frame, app))
+        .expect("draw");
+    world.screen = buffer_to_string(terminal.backend());
+}
+
+pub fn shows_text(world: &BddWorld, text: &str) -> bool {
+    // Ignore wrapping and the frame, but only inspect cells actually rendered.
+    let compact = |value: &str| -> String {
+        value
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && *ch != '│')
+            .collect()
+    };
+    compact(&world.screen).contains(&compact(text))
+}
+
+fn buffer_to_string(backend: &TestBackend) -> String {
+    let buffer = backend.buffer();
+    let area = buffer.area;
+    let mut lines = Vec::new();
+    for y in 0..area.height {
+        let mut line = String::new();
+        let mut x = 0u16;
+        while x < area.width {
+            let cell = &buffer[(x, y)];
+            let symbol = cell.symbol();
+            line.push_str(symbol);
+            let width = symbol.width().max(1) as u16;
+            x = x.saturating_add(width);
+        }
+        lines.push(line.trim_end().to_string());
+    }
+    lines.join("\n")
+}
+
+pub fn open_sidebar(world: &mut BddWorld) {
+    world.tui_wanted = true;
+    let project = FsProject::capped(world.fs_root.clone());
+    let listed = list_scripts(
+        &project,
+        &origin_for_paths(world.foreground_cwd.clone(), world.start_cwd.clone()),
+    );
+    let mut app = SidebarApp::with_theme(listed, world.theme);
+    world.names_at_open = app
+        .scripts()
+        .iter()
+        .map(|script| script.name.clone())
+        .collect();
+    app.workspace_id = world.workspace_id.clone();
+    world.app = Some(app);
+    draw(world);
+}
+
+pub fn snapshot(world: &mut BddWorld) {
+    if let Some(app) = world.app.as_ref() {
+        world.prev_footer_offset = app.footer_offset;
+        world.prev_list_offset = app.list_offset;
+    }
+}
+
+pub fn press(world: &mut BddWorld, code: KeyCode) {
+    press_modified(world, code, KeyModifiers::NONE);
+}
+
+pub fn press_modified(world: &mut BddWorld, code: KeyCode, modifiers: KeyModifiers) {
+    snapshot(world);
+    let Some(app) = world.app.as_mut() else {
+        panic!("sidebar TUI is not open");
+    };
+    let key = KeyEvent::new(code, modifiers);
+    if keymap::handle_event(app, Event::Key(key)) {
+        app.process_running = false;
+        world.app = None;
+        world.screen.clear();
+        return;
+    }
+    draw(world);
+    if world.auto_launch {
+        launch_pending(world);
+    }
+}
+
+pub fn resize_to_current(world: &mut BddWorld) {
+    snapshot(world);
+    let (width, height) = backend_size(world);
+    if let Some(app) = world.app.as_mut() {
+        keymap::handle_event(app, Event::Resize(width, height));
+    }
+    draw(world);
+}
+
+fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+pub fn left_click(world: &mut BddWorld, column: u16, row: u16) {
+    snapshot(world);
+    let Some(app) = world.app.as_mut() else {
+        panic!("sidebar TUI is not open");
+    };
+    app.run_intents.clear();
+    keymap::handle_event(
+        app,
+        Event::Mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row)),
+    );
+    draw(world);
+    if world.auto_launch {
+        launch_pending(world);
+    }
+}
+
+pub fn mouse_up(world: &mut BddWorld, column: u16, row: u16) {
+    snapshot(world);
+    let Some(app) = world.app.as_mut() else {
+        panic!("sidebar TUI is not open");
+    };
+    keymap::handle_event(
+        app,
+        Event::Mouse(mouse(MouseEventKind::Up(MouseButton::Left), column, row)),
+    );
+    draw(world);
+}
+
+pub fn mouse_move(world: &mut BddWorld, column: u16, row: u16) {
+    snapshot(world);
+    let Some(app) = world.app.as_mut() else {
+        panic!("sidebar TUI is not open");
+    };
+    keymap::handle_event(app, Event::Mouse(mouse(MouseEventKind::Moved, column, row)));
+    draw(world);
+}
+
+pub fn wheel(world: &mut BddWorld, down: bool, column: u16, row: u16) {
+    snapshot(world);
+    let Some(app) = world.app.as_mut() else {
+        panic!("sidebar TUI is not open");
+    };
+    let kind = if down {
+        MouseEventKind::ScrollDown
+    } else {
+        MouseEventKind::ScrollUp
+    };
+    keymap::handle_event(app, Event::Mouse(mouse(kind, column, row)));
+    draw(world);
+}
+
+pub fn wheel_on_list(world: &mut BddWorld, down: bool) {
+    let geo = geometry(world);
+    assert!(geo.list.height > 0, "list rectangle has no height");
+    wheel(world, down, geo.list.x, geo.list.y);
+}
+
+pub fn wheel_on_header(world: &mut BddWorld, down: bool) {
+    let geo = geometry(world);
+    wheel(world, down, geo.header.x, geo.header.y);
+}
+
+pub fn geometry(world: &BddWorld) -> ColumnGeometry {
+    world
+        .app
+        .as_ref()
+        .expect("sidebar TUI is not open")
+        .layout()
+}
+
+pub fn script_row(world: &BddWorld, name: &str) -> u16 {
+    let app = world.app.as_ref().expect("sidebar TUI is not open");
+    let catalog_index = app
+        .scripts()
+        .iter()
+        .position(|script| script.name == name)
+        .unwrap_or_else(|| panic!("script {name} is not listed"));
+    let vis = app
+        .visible_pos(catalog_index)
+        .unwrap_or_else(|| panic!("script {name} is not in the filtered list"));
+    let geo = geometry(world);
+    assert!(
+        vis >= app.list_offset && vis < app.list_offset + geo.list.height as usize,
+        "script {name} is not in the visible window"
+    );
+    geo.list.y + (vis - app.list_offset) as u16
+}
+
+pub fn zone_column(world: &BddWorld, zone: &str) -> u16 {
+    let app = world.app.as_ref().expect("sidebar TUI is not open");
+    let geo = geometry(world);
+    let mut found = None;
+    for column in geo.list.x..geo.list.x.saturating_add(geo.list.width) {
+        if view::row_zone(app.inner, column) == zone {
+            found = Some(column);
+            break;
+        }
+    }
+    let column = found.unwrap_or_else(|| panic!("no column mapped to zone {zone}"));
+    let gutter_end = geo.list.x + ICON_GUTTER_COLS;
+    match zone {
+        "play icon" => assert!(
+            column < gutter_end,
+            "play icon column {column} is outside the two-cell gutter ending at {gutter_end}"
+        ),
+        "script name" | "command text" | "trailing space" => assert!(
+            column >= gutter_end,
+            "{zone} column {column} is inside the two-cell icon gutter"
+        ),
+        _ => {}
+    }
+    column
+}
+
+pub fn close_with_q(world: &mut BddWorld) {
+    press(world, KeyCode::Char('q'));
+}
+
+pub fn launch_pending(world: &mut BddWorld) {
+    let Some(app) = world.app.as_mut() else {
+        return;
+    };
+    herdr_npm::adapters::tui::flush_intents(app, &world.herdr);
+    world.last_error = app.launch_error.clone();
+    draw(world);
+}
+
+pub fn select_named(world: &mut BddWorld, name: &str) {
+    let index = world
+        .app
+        .as_ref()
+        .expect("sidebar")
+        .scripts()
+        .iter()
+        .position(|script| script.name == name)
+        .unwrap_or_else(|| panic!("script {name} is not listed"));
+    if let Some(app) = world.app.as_mut() {
+        app.select_index(index);
+    }
+    draw(world);
+}

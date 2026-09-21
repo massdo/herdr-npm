@@ -30,4 +30,4 @@ jobs:
           npm --version
           pnpm --version
       - name: offline suite
-        run: sh plugins/herdr-npm/scripts/check.sh all
+        run: sh scripts/check.sh all

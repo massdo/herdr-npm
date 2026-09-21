@@ -46,10 +46,15 @@ jobs:
       - name: e2e recipe
         env:
           HERDR_SIDEBAR_ROOT: ""
-        run: sh plugins/herdr-npm/scripts/e2e.sh
+        run: sh scripts/e2e.sh
+      - name: V1.1 e2e recipe
+        env:
+          HERDR_SIDEBAR_ROOT: ""
+          HERDR_NPM_E2E_CASE: v1_1
+        run: sh scripts/e2e.sh
       - name: install from this SHA
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh auth setup-git --hostname github.com
-          sh plugins/herdr-npm/scripts/install-smoke.sh "${{ github.sha }}"
+          sh scripts/install-smoke.sh "${{ github.sha }}"
