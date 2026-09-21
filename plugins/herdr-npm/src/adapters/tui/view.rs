@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
-use super::app::{PLAY_ICON, SidebarApp};
+use super::app::{MAGNIFIER_ICON, PLAY_ICON, SidebarApp};
 use crate::domain::error::AppError;
 
 /// Play glyph plus the following spacer. Shared by `format_row`, `row_zone`,
@@ -50,16 +50,49 @@ pub fn ellipsize(text: &str, max_cells: usize) -> String {
 }
 
 pub fn column_geometry(inner: Rect, status_line_count: usize) -> ColumnGeometry {
+    column_layout(inner, status_line_count, false, true)
+}
+
+pub fn column_layout(
+    inner: Rect,
+    status_line_count: usize,
+    search_editing: bool,
+    show_magnifier: bool,
+) -> ColumnGeometry {
     let header_h = 1u16.min(inner.height);
-    let command_h = 1u16.min(inner.height.saturating_sub(header_h));
-    let status_h =
-        (status_line_count as u16).min(inner.height.saturating_sub(header_h + command_h));
-    let list_h = inner.height.saturating_sub(header_h + command_h + status_h);
+    let search_h = if search_editing {
+        1u16.min(inner.height.saturating_sub(header_h))
+    } else {
+        0
+    };
+    let command_h = 1u16.min(inner.height.saturating_sub(header_h + search_h));
+    let status_h = (status_line_count as u16)
+        .min(inner.height.saturating_sub(header_h + search_h + command_h));
+    let list_h = inner
+        .height
+        .saturating_sub(header_h + search_h + command_h + status_h);
 
     let header = Rect::new(inner.x, inner.y, inner.width, header_h);
-    let list = Rect::new(
+    let magnifier = if show_magnifier && header.width > 0 && header.height > 0 {
+        let width = MAGNIFIER_ICON.width().min(header.width as usize) as u16;
+        Rect::new(
+            header.x.saturating_add(header.width.saturating_sub(width)),
+            header.y,
+            width,
+            header.height,
+        )
+    } else {
+        Rect::new(0, 0, 0, 0)
+    };
+    let search = Rect::new(
         inner.x,
         inner.y.saturating_add(header.height),
+        inner.width,
+        search_h,
+    );
+    let list = Rect::new(
+        inner.x,
+        search.y.saturating_add(search.height),
         inner.width,
         list_h,
     );
@@ -78,8 +111,8 @@ pub fn column_geometry(inner: Rect, status_line_count: usize) -> ColumnGeometry 
     ColumnGeometry {
         inner,
         header,
-        magnifier: Rect::new(0, 0, 0, 0),
-        search: Rect::new(0, 0, 0, 0),
+        magnifier,
+        search,
         list,
         command,
         status,
@@ -138,33 +171,60 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
     }
 
     let catalog = app.catalog().expect("ok catalog");
-    let geo = column_geometry(inner, app.status_lines().len());
+    let geo = app.layout();
     let mut lines: Vec<Line> = Vec::new();
+    let mag_width = if geo.magnifier.width == 0 {
+        0
+    } else {
+        MAGNIFIER_ICON.width()
+    };
+    let header_budget = (inner.width as usize).saturating_sub(mag_width);
     let header = format!("{}  {}", catalog.display_name, catalog.manager.as_str());
-    lines.push(Line::from(Span::styled(
-        ellipsize(&header, inner.width as usize),
+    let mut header_spans = vec![Span::styled(
+        ellipsize(&header, header_budget),
         Style::default().add_modifier(Modifier::BOLD),
-    )));
+    )];
+    if mag_width > 0 {
+        let used = header_spans
+            .iter()
+            .map(|span| span.content.width())
+            .sum::<usize>();
+        if used < inner.width as usize {
+            header_spans.push(Span::raw(
+                " ".repeat(inner.width as usize - used - mag_width),
+            ));
+        }
+        header_spans.push(Span::raw(MAGNIFIER_ICON));
+    }
+    lines.push(Line::from(header_spans));
+    if geo.search.height > 0 {
+        lines.push(Line::from(format!("/ {}", app.search.query)));
+    }
 
     let list_h = geo.list.height as usize;
-    let scripts = &catalog.scripts;
-    let visible = scripts
-        .iter()
-        .enumerate()
-        .skip(app.list_offset)
-        .take(list_h);
-    for (index, script) in visible {
-        let selected = index == app.selected;
-        let row = format_row(script, inner.width as usize);
-        let style = if selected {
-            Style::default().add_modifier(Modifier::REVERSED)
-        } else {
-            Style::default()
-        };
-        lines.push(Line::from(Span::styled(row, style)));
-    }
-    while lines.len() < 1 + list_h {
-        lines.push(Line::from(""));
+    if let Some(message) = app.no_match_message() {
+        if list_h > 0 {
+            lines.push(Line::from(ellipsize(&message, inner.width as usize)));
+        }
+        while lines.len() < 1 + geo.search.height as usize + list_h {
+            lines.push(Line::from(""));
+        }
+    } else {
+        let visible = app.search.matches.iter().skip(app.list_offset).take(list_h);
+        for item in visible {
+            let script = &catalog.scripts[item.index];
+            let selected = item.index == app.selected;
+            let row = format_row(script, inner.width as usize, &item.positions);
+            let style = if selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            lines.push(row.patch_style(style));
+        }
+        while lines.len() < 1 + geo.search.height as usize + list_h {
+            lines.push(Line::from(""));
+        }
     }
 
     let command = app
@@ -175,18 +235,78 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
     lines.push(Line::from(footer));
     lines.extend(app.status_lines().into_iter().map(Line::from));
     frame.render_widget(Paragraph::new(lines), inner);
+    if app.search.is_editing() && geo.search.height > 0 {
+        let cursor_x = geo.search.x.saturating_add(
+            2 + app
+                .search
+                .query
+                .width()
+                .min(geo.search.width.saturating_sub(2) as usize) as u16,
+        );
+        frame.set_cursor_position((
+            cursor_x.min(
+                geo.search
+                    .x
+                    .saturating_add(geo.search.width.saturating_sub(1)),
+            ),
+            geo.search.y,
+        ));
+    }
 }
 
-fn format_row(script: &crate::domain::catalog::Script, width: usize) -> String {
-    let icon = PLAY_ICON;
+fn format_row(
+    script: &crate::domain::catalog::Script,
+    width: usize,
+    highlights: &[usize],
+) -> Line<'static> {
     let gutter = ICON_GUTTER_COLS as usize;
     let rest = width.saturating_sub(gutter);
     let name_budget = (rest / 3).max(1);
-    let name = ellipsize(&script.name, name_budget);
-    let used = gutter + name.width();
+    let (name_spans, name_width) = highlight_name(&script.name, highlights, name_budget);
+    let used = gutter + name_width;
     let cmd_budget = width.saturating_sub(used + 1);
     let command = ellipsize(&script.command, cmd_budget);
-    format!("{icon} {name} {command}")
+    let mut spans = vec![Span::raw(format!("{PLAY_ICON} "))];
+    spans.extend(name_spans);
+    spans.push(Span::raw(format!(" {command}")));
+    Line::from(spans)
+}
+
+fn highlight_name(name: &str, highlights: &[usize], budget: usize) -> (Vec<Span<'static>>, usize) {
+    if budget == 0 {
+        return (Vec::new(), 0);
+    }
+    let marked: std::collections::HashSet<usize> = highlights.iter().copied().collect();
+    let mut spans = Vec::new();
+    let mut used = 0;
+    for (index, ch) in name.chars().enumerate() {
+        let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + width > budget {
+            break;
+        }
+        let mut style = Style::default();
+        if marked.contains(&index) {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        spans.push(Span::styled(ch.to_string(), style));
+        used += width;
+    }
+    if name.width() > budget {
+        if budget == 1 {
+            return (vec![Span::raw("…")], 1);
+        }
+        while used >= budget {
+            let Some(last) = spans.pop() else {
+                break;
+            };
+            used = used.saturating_sub(last.content.width());
+        }
+        if used + 1 <= budget {
+            spans.push(Span::raw("…"));
+            used += 1;
+        }
+    }
+    (spans, used)
 }
 
 fn scroll_text(text: &str, offset: usize, width: usize) -> String {
@@ -247,11 +367,16 @@ mod tests {
                 command: "vitest".into(),
             },
             inner.width as usize,
+            &[],
         );
-        assert_eq!(
-            rendered.chars().take(2).collect::<String>(),
-            format!("{PLAY_ICON} "),
-            "formatted gutter is two cells: glyph plus spacer"
+        let text: String = rendered
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert!(
+            text.starts_with(&format!("{PLAY_ICON} ")),
+            "formatted gutter is two cells: glyph plus spacer, got {text:?}"
         );
         assert_eq!(PLAY_ICON.width() + 1, ICON_GUTTER_COLS as usize);
     }

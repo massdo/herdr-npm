@@ -488,8 +488,10 @@ async fn rewrite_only_script(world: &mut BddWorld, path: String, script: String)
 #[when(regex = r#"^I press "([^"]+)"$"#)]
 async fn i_press(world: &mut BddWorld, key: String) {
     let code = match key.as_str() {
-        "j" | "k" | "h" | "l" | "q" => KeyCode::Char(key.chars().next().expect("key")),
+        "j" | "k" | "h" | "l" | "q" | "/" => KeyCode::Char(key.chars().next().expect("key")),
         "Enter" => KeyCode::Enter,
+        "Esc" => KeyCode::Esc,
+        "Backspace" => KeyCode::Backspace,
         other => panic!("unhandled key {other}"),
     };
     tui::press(world, code);
@@ -590,7 +592,7 @@ async fn click_outside(world: &mut BddWorld, target: String) {
     let geo = tui::geometry(world);
     let (column, row) = match target.trim() {
         "the sidebar header" => (geo.header.x, geo.header.y),
-        "the empty space below the list" => (geo.list.x, geo.list.y + app.scripts().len() as u16),
+        "the empty space below the list" => (geo.list.x, geo.list.y + app.visible_len() as u16),
         "the full command line at the bottom" => (geo.command.x, geo.command.y),
         other => panic!("unhandled click target {other}"),
     };

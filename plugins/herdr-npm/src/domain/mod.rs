@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod error;
+pub mod fuzzy;
 pub mod geometry;
 pub mod ids;
 pub mod package_manager;

@@ -93,11 +93,15 @@ pub fn snapshot(world: &mut BddWorld) {
 }
 
 pub fn press(world: &mut BddWorld, code: KeyCode) {
+    press_modified(world, code, KeyModifiers::NONE);
+}
+
+pub fn press_modified(world: &mut BddWorld, code: KeyCode, modifiers: KeyModifiers) {
     snapshot(world);
     let Some(app) = world.app.as_mut() else {
         panic!("sidebar TUI is not open");
     };
-    let key = KeyEvent::new(code, KeyModifiers::NONE);
+    let key = KeyEvent::new(code, modifiers);
     if keymap::handle_event(app, Event::Key(key)) {
         app.process_running = false;
         world.app = None;
@@ -191,23 +195,29 @@ pub fn wheel_on_header(world: &mut BddWorld, down: bool) {
 }
 
 pub fn geometry(world: &BddWorld) -> ColumnGeometry {
-    let app = world.app.as_ref().expect("sidebar TUI is not open");
-    view::column_geometry(app.inner, app.status_lines().len())
+    world
+        .app
+        .as_ref()
+        .expect("sidebar TUI is not open")
+        .layout()
 }
 
 pub fn script_row(world: &BddWorld, name: &str) -> u16 {
     let app = world.app.as_ref().expect("sidebar TUI is not open");
-    let index = app
+    let catalog_index = app
         .scripts()
         .iter()
         .position(|script| script.name == name)
         .unwrap_or_else(|| panic!("script {name} is not listed"));
+    let vis = app
+        .visible_pos(catalog_index)
+        .unwrap_or_else(|| panic!("script {name} is not in the filtered list"));
     let geo = geometry(world);
     assert!(
-        index >= app.list_offset && index < app.list_offset + geo.list.height as usize,
+        vis >= app.list_offset && vis < app.list_offset + geo.list.height as usize,
         "script {name} is not in the visible window"
     );
-    geo.list.y + (index - app.list_offset) as u16
+    geo.list.y + (vis - app.list_offset) as u16
 }
 
 pub fn zone_column(world: &BddWorld, zone: &str) -> u16 {

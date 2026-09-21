@@ -181,6 +181,19 @@ def prove_wheel(npm, client):
     print("client_pty_wheel_routing_ok", flush=True)
 
 
+def prove_search(npm):
+    focus(npm)
+    before_tabs = {t["tab_id"] for t in tabs()}
+    keys(npm, "/")
+    keys(npm, "b")
+    wait(lambda: "build" in read(npm), "search did not keep build")
+    keys(npm, "Enter")
+    time.sleep(0.2)
+    assert before_tabs == {t["tab_id"] for t in tabs()}, "Enter in search launched a script"
+    launch(npm, "build")
+    print("search_filter_and_launch_ok", flush=True)
+
+
 def launch(npm, script, click=False):
     argv_file = Path(env("ARGV"))
     argv_file.unlink(missing_ok=True)
@@ -264,6 +277,10 @@ def main(client):
     if case_name() == "wheel":
         prove_wheel(npm, client)
         print("wheel_case_ok", flush=True)
+        return
+    if case_name() == "search":
+        prove_search(npm)
+        print("search_case_ok", flush=True)
         return
     if case_name() not in ("", "all"):
         raise AssertionError(f"unknown HERDR_NPM_E2E_CASE={case_name()!r}")
