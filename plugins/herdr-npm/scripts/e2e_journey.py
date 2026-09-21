@@ -1,16 +1,61 @@
 #!/usr/bin/env python3
 """One sequential journey through an isolated, attached Herdr session."""
 
+import fcntl
 import json
 import os
+import pty
 import socket
+import struct
 import subprocess
+import termios
+import threading
 import time
 from pathlib import Path
 
 
 def env(name):
     return os.environ[f"HERDR_NPM_E2E_{name}"]
+
+
+class Client:
+    def start(self):
+        self.pid, self.master = pty.fork()
+        if self.pid == 0:
+            os.execvp("herdr", ["herdr", "--session", env("SESSION")])
+        fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+        self.reader = threading.Thread(target=self.record, daemon=True)
+        self.reader.start()
+
+    def record(self):
+        with open(env("CLIENT_LOG"), "ab", buffering=0) as log:
+            while True:
+                try:
+                    chunk = os.read(self.master, 8192)
+                except OSError:
+                    break  # Linux reports PTY EOF as EIO.
+                if not chunk:
+                    break
+                log.write(chunk)
+
+    def close(self):
+        if self.pid is None:
+            return
+        try:
+            os.kill(self.pid, 15)
+        except ProcessLookupError:
+            pass
+        os.waitpid(self.pid, 0)
+        self.reader.join(timeout=2)
+        os.close(self.master)
+        self.pid = None
+
+    def shortcut(self):
+        log = Path(env("CLIENT_LOG"))
+        offset = log.stat().st_size
+        os.write(self.master, b"\x02")
+        wait(lambda: b"PREFIX" in log.read_bytes()[offset:], "client did not enter prefix mode")
+        os.write(self.master, b"S")
 
 
 def herdr(*args):
@@ -86,17 +131,6 @@ def open_sidebar(working):
     return pane
 
 
-def shortcut():
-    # A real prefix chord through the attached Herdr client.
-    for raw in ["02", "53"]:
-        fd = os.open(env("PTY_CTL"), os.O_WRONLY | os.O_NONBLOCK)
-        try:
-            os.write(fd, f"key {raw}\n".encode())
-        finally:
-            os.close(fd)
-        time.sleep(0.1)
-
-
 def launch(npm, script, click=False):
     argv_file = Path(env("ARGV"))
     argv_file.unlink(missing_ok=True)
@@ -147,7 +181,7 @@ def settled_layout(pane):
     return wait(settled, "pane geometry did not settle")
 
 
-def main():
+def main(client):
     xdg = Path(env("XDG")).resolve()
     assert env("SESSION").startswith("herdr-npm-e2e-")
     assert Path(env("SOCKET")).resolve().is_relative_to(xdg)
@@ -196,12 +230,12 @@ def main():
     print("keyboard_launch_and_retained_output_ok", flush=True)
 
     focus(npm)
-    shortcut()
+    client.shortcut()
     wait(lambda: sidebar() is None, "shortcut did not close sidebar")
     wait(lambda: any(p["pane_id"] == working and p["focused"] for p in panes()),
          "closing sidebar did not return focus to the working pane")
     settled_layout(working)
-    shortcut()
+    client.shortcut()
     npm = wait(sidebar, "shortcut did not reopen sidebar")["pane_id"]
     wait(lambda: "h/l scroll" in read(npm), "reopened sidebar not ready")
     keys(npm, "q")
@@ -209,6 +243,7 @@ def main():
     print("shortcut_and_q_ok", flush=True)
 
     npm = open_sidebar(working)
+    client.close()
     herdr("session", "stop", env("SESSION"))
     wait(lambda: not Path(env("SOCKET")).exists(), "server did not stop")
     with open(env("SERVER_LOG"), "a") as log:
@@ -216,6 +251,7 @@ def main():
                                   stdout=log, stderr=log)
     Path(env("SERVER_PID")).write_text(str(server.pid))
     wait(lambda: Path(env("SOCKET")).is_socket(), "server did not restart")
+    client.start()
     restored = wait(lambda: next((p for p in panes() if p["pane_id"] == npm), None),
                     "sidebar pane not restored")
     assert not is_sidebar(restored), restored
@@ -226,8 +262,10 @@ def main():
 
 
 if __name__ == "__main__":
+    client = Client()
+    client.start()
     try:
-        main()
+        main(client)
     except Exception:
         # Preserve useful CI evidence before the shell removes the isolated profile.
         print("== attached client ==", flush=True)
@@ -241,3 +279,5 @@ if __name__ == "__main__":
         except Exception as error:
             print(f"diagnostics unavailable: {error}", flush=True)
         raise
+    finally:
+        client.close()

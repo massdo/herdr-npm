@@ -15,11 +15,7 @@ HOLD="$TMP/hold.log"
 ARGV="$TMP/argv.json"
 SERVER_LOG="$TMP/herdr-server.log"
 CLIENT_LOG="$TMP/herdr-client.log"
-CLIENT_PID_FILE="$TMP/client.pid"
 SERVER_PID_FILE="$TMP/server.pid"
-PTY_CTL="$TMP/pty.ctl"
-PTY_READY="$TMP/pty.ready"
-ATTACH="$PLUGIN_DIR/scripts/pty_attach.py"
 
 export HERDR_NPM_E2E_SESSION="$SESSION"
 export HERDR_NPM_E2E_XDG="$XDG"
@@ -29,12 +25,7 @@ export HERDR_NPM_E2E_HOLD="$HOLD"
 export HERDR_NPM_E2E_ARGV="$ARGV"
 export HERDR_NPM_E2E_SERVER_LOG="$SERVER_LOG"
 export HERDR_NPM_E2E_SERVER_PID="$SERVER_PID_FILE"
-export HERDR_NPM_E2E_CLIENT_PID="$CLIENT_PID_FILE"
 export HERDR_NPM_E2E_CLIENT_LOG="$CLIENT_LOG"
-export HERDR_NPM_E2E_PTY_CTL="$PTY_CTL"
-export HERDR_NPM_E2E_PTY_READY="$PTY_READY"
-export HERDR_NPM_E2E_ROWS=40
-export HERDR_NPM_E2E_COLS=120
 export XDG_STATE_HOME="$TMP/state"
 export HERDR_PLUGIN_STATE_DIR="$XDG_STATE_HOME/herdr/plugins/herdr-npm"
 export XDG_CONFIG_HOME="$XDG"
@@ -44,9 +35,6 @@ cleanup() {
   status=$?
   if [ -n "${SESSION:-}" ]; then
     herdr session stop "$SESSION" >/dev/null 2>&1 || true
-  fi
-  if [ -f "$CLIENT_PID_FILE" ]; then
-    kill "$(cat "$CLIENT_PID_FILE")" >/dev/null 2>&1 || true
   fi
   if [ -f "$SERVER_PID_FILE" ]; then
     kill "$(cat "$SERVER_PID_FILE")" >/dev/null 2>&1 || true
@@ -223,27 +211,7 @@ JSON
 echo "== workspace =="
 herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label e2e --no-focus >/dev/null
 
-echo "== attach PTY client =="
-# Attach only once the fixture workspace exists; otherwise Herdr creates a
-# default workspace in the checkout and the scenario reset keeps that one.
-python3 "$ATTACH" >"$TMP/attach.out" 2>"$TMP/attach.err" &
-echo $! >"$CLIENT_PID_FILE"
-sleep 0.4
-
 echo "== PTY journey =="
-i=0
-while [ "$i" -lt 40 ]; do
-  if [ -f "$PTY_READY" ] && [ -p "$PTY_CTL" ]; then
-    break
-  fi
-  i=$((i + 1))
-  sleep 0.1
-done
-if [ ! -f "$PTY_READY" ]; then
-  echo "PTY attach did not become ready" >&2
-  cat "$TMP/attach.err" >&2 || true
-  exit 1
-fi
 python3 "$PLUGIN_DIR/scripts/e2e_journey.py"
 echo "journey_exit=0"
 
