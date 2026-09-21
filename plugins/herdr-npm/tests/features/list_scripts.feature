@@ -290,6 +290,97 @@ Feature: List the scripts of the current package.json
     And the 40th script is selected
     And no run intent has been emitted
 
+  @v1_1_wheel
+  Scenario: The mouse wheel scrolls a long list without changing the selection
+    Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    When the sidebar opens
+    And I roll the mouse wheel down on the list
+    Then the list offset increases by 3
+    And the selection is on the first script
+    And no run intent has been emitted
+    When I redraw the sidebar twice at the same size
+    Then the list offset is unchanged
+    When the TestBackend is resized to 40 columns and 20 rows
+    Then the list offset is at most the last full screen
+    When I roll the mouse wheel up on the list
+    Then the list offset is 0
+
+  @v1_1_wheel
+  Scenario: The mouse wheel stops at both ends of a long list
+    Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    When the sidebar opens
+    And I roll the mouse wheel up on the list
+    Then the list offset is 0
+    When I roll the mouse wheel down until the last page
+    Then the list offset is at the last full screen
+    When I roll the mouse wheel down on the list
+    Then the list offset is at the last full screen
+
+  @v1_1_wheel
+  Scenario: A short list ignores the mouse wheel
+    Given a project at "/work/app" whose package.json has name "app" and declares the scripts:
+      | name  | command           |
+      | dev   | vite              |
+      | build | tsc && vite build |
+      | test  | vitest run        |
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    When the sidebar opens
+    And I roll the mouse wheel down on the list
+    Then the list offset is 0
+    And the selection is still on the first script
+    And no run intent has been emitted
+
+  @v1_1_wheel
+  Scenario: A click after scrolling hits the visible row
+    Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    When the sidebar opens
+    And I roll the mouse wheel down on the list
+    And I left-click the play icon of the first visible row
+    Then the first visible script is selected
+    And a single run intent is emitted for the first visible script
+
+  @v1_1_wheel
+  Scenario: Keyboard navigation at the bound brings the selection back into view
+    Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    When the sidebar opens
+    And I roll the mouse wheel down until the selection is off-screen
+    Then the selected script is not in the visible window
+    When I press "k"
+    Then the selection is still on the first script
+    And the list scrolls to keep the selection visible
+    And no run intent has been emitted
+
+  @v1_1_wheel
+  Scenario: The mouse wheel does nothing on the header
+    Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend is 32 columns wide and 24 rows tall
+    When the sidebar opens
+    And I roll the mouse wheel down on the sidebar header
+    Then the list offset is 0
+    And the selection is still on the first script
+    And no run intent has been emitted
+
+  @v1_1_wheel
+  Scenario: The mouse wheel does nothing when the terminal is too small
+    Given a project at "/work/app" whose package.json has name "app" and declares 40 scripts named s1 to s40
+    And the origin pane foreground cwd is "/work/app"
+    And the TestBackend interior is 11 columns by 3 rows
+    When the sidebar opens
+    Then the sidebar shows the message "Terminal too small"
+    When I roll the mouse wheel down on the pane
+    Then the sidebar shows the message "Terminal too small"
+    And no script can be launched
+
   Scenario Outline: Text too long for the column is cut with an ellipsis
     Given the TestBackend is 32 columns wide and 24 rows tall
     And a project at "/work/app" whose package.json has name "app" and declares a script whose <field> is longer than the column

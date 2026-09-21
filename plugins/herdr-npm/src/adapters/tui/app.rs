@@ -10,6 +10,7 @@ use crate::domain::error::AppError;
 pub const PLAY_ICON: &str = "▶";
 pub const MIN_INNER_COLS: u16 = 12;
 pub const MIN_INNER_ROWS: u16 = 4;
+pub const WHEEL_LINES: isize = 3;
 
 #[derive(Debug, Clone)]
 pub struct SidebarApp {
@@ -118,11 +119,31 @@ impl SidebarApp {
 
     pub fn ensure_visible(&mut self) {
         let height = self.list_height();
+        if height == 0 {
+            self.list_offset = 0;
+            return;
+        }
         if self.selected < self.list_offset {
             self.list_offset = self.selected;
         } else if self.selected >= self.list_offset + height {
             self.list_offset = self.selected + 1 - height;
         }
+    }
+
+    pub fn clamp_list_offset(&mut self) {
+        let max = max_list_offset(self.scripts().len(), self.list_height());
+        if self.list_offset > max {
+            self.list_offset = max;
+        }
+    }
+
+    pub fn scroll_list(&mut self, delta: isize) {
+        self.list_offset = bounded_list_offset(
+            self.list_offset,
+            delta,
+            self.scripts().len(),
+            self.list_height(),
+        );
     }
 
     pub fn move_selection(&mut self, delta: isize) {
@@ -135,8 +156,8 @@ impl SidebarApp {
         if clamped != self.selected {
             self.selected = clamped;
             self.footer_offset = 0;
-            self.ensure_visible();
         }
+        self.ensure_visible();
     }
 
     pub fn select_index(&mut self, index: usize) {
@@ -153,6 +174,7 @@ impl SidebarApp {
         if self.too_small() || self.listed.catalog.is_err() {
             return;
         }
+        self.ensure_visible();
         if let Some(script) = self.selected_script() {
             self.run_intents.push(RunIntent {
                 script_name: script.name.clone(),
@@ -187,16 +209,37 @@ impl SidebarApp {
         if self.too_small() || self.listed.catalog.is_err() {
             return;
         }
-        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
-            return;
-        }
-        let Some(index) = self.row_at(mouse.column, mouse.row) else {
-            return;
-        };
-        self.select_index(index);
         let geo = super::view::column_geometry(self.inner, self.status_lines().len());
-        if geo.hits_icon_gutter(mouse.column, mouse.row) {
-            self.emit_run();
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let Some(index) = geo.script_index(
+                    mouse.column,
+                    mouse.row,
+                    self.list_offset,
+                    self.scripts().len(),
+                ) else {
+                    return;
+                };
+                self.select_index(index);
+                if geo.hits_icon_gutter(mouse.column, mouse.row) {
+                    self.emit_run();
+                }
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                if !geo.list.contains(ratatui::layout::Position {
+                    x: mouse.column,
+                    y: mouse.row,
+                }) {
+                    return;
+                }
+                let delta = if mouse.kind == MouseEventKind::ScrollDown {
+                    WHEEL_LINES
+                } else {
+                    -WHEEL_LINES
+                };
+                self.scroll_list(delta);
+            }
+            _ => {}
         }
     }
 
@@ -206,7 +249,40 @@ impl SidebarApp {
     }
 
     pub fn set_inner(&mut self, inner: Rect) {
+        let size_changed = inner.width != self.inner.width || inner.height != self.inner.height;
         self.inner = inner;
-        self.ensure_visible();
+        if size_changed {
+            self.ensure_visible();
+        } else {
+            self.clamp_list_offset();
+        }
+    }
+}
+
+pub fn max_list_offset(len: usize, height: usize) -> usize {
+    if height == 0 {
+        0
+    } else {
+        len.saturating_sub(height)
+    }
+}
+
+pub fn bounded_list_offset(offset: usize, delta: isize, len: usize, height: usize) -> usize {
+    let max = max_list_offset(len, height) as isize;
+    (offset as isize + delta).clamp(0, max) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_list_offset_stops_at_both_ends() {
+        assert_eq!(bounded_list_offset(0, -3, 40, 19), 0);
+        assert_eq!(bounded_list_offset(0, 3, 40, 19), 3);
+        assert_eq!(bounded_list_offset(20, 3, 40, 19), 21);
+        assert_eq!(bounded_list_offset(21, 3, 40, 19), 21);
+        assert_eq!(bounded_list_offset(0, 3, 3, 19), 0);
+        assert_eq!(bounded_list_offset(5, 3, 40, 0), 0);
     }
 }

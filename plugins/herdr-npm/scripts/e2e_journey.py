@@ -150,6 +150,37 @@ def prove_name_click_does_not_launch(npm):
     print("name_click_does_not_launch_ok", flush=True)
 
 
+def sgr_wheel(pane, col, row, down=True):
+    button = 65 if down else 64
+    herdr("pane", "send-text", pane, f"\x1b[<{button};{col};{row}M")
+
+
+def prove_wheel(npm, client):
+    focus(npm)
+    before_tabs = {t["tab_id"] for t in tabs()}
+    before = read(npm)
+    sgr_wheel(npm, 2, 4, down=True)
+    wait(lambda: read(npm) != before, "pane SGR wheel did not change the visible window")
+    after_down = read(npm)
+    assert before_tabs == {t["tab_id"] for t in tabs()}, "wheel created a tab"
+    sgr_wheel(npm, 2, 4, down=False)
+    wait(lambda: read(npm) != after_down, "pane SGR wheel up did not change the visible window")
+    print("pane_sgr_wheel_decode_ok", flush=True)
+
+    layout = data("pane", "layout", "--pane", npm)["layout"]["panes"]
+    rect = next(p["rect"] for p in layout if p["pane_id"] == npm)
+    col = int(rect["x"]) + 2
+    row = int(rect["y"]) + 4
+    before_client = read(npm)
+    os.write(client.master, f"\x1b[<65;{col};{row}M".encode())
+    wait(
+        lambda: read(npm) != before_client,
+        "client PTY wheel did not route to the npm pane",
+    )
+    assert before_tabs == {t["tab_id"] for t in tabs()}, "routed wheel created a tab"
+    print("client_pty_wheel_routing_ok", flush=True)
+
+
 def launch(npm, script, click=False):
     argv_file = Path(env("ARGV"))
     argv_file.unlink(missing_ok=True)
@@ -225,14 +256,19 @@ def main(client):
     assert rects[working]["x"] > rects[npm]["x"], rects
     print("explorer_docking_ok", flush=True)
 
-    prove_name_click_does_not_launch(npm)
     if case_name() == "icon":
+        prove_name_click_does_not_launch(npm)
         launch(npm, "dev", click=True)
         print("icon_case_ok", flush=True)
+        return
+    if case_name() == "wheel":
+        prove_wheel(npm, client)
+        print("wheel_case_ok", flush=True)
         return
     if case_name() not in ("", "all"):
         raise AssertionError(f"unknown HERDR_NPM_E2E_CASE={case_name()!r}")
 
+    prove_name_click_does_not_launch(npm)
     dev_tab, dev_pane = launch(npm, "dev", click=True)
     wait(lambda: "VITE_HOLD_START" in read(dev_pane), "dev output missing")
     pid = int(Path(env("HOLD") + ".pid").read_text())

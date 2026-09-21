@@ -29,3 +29,4 @@ La recette crée une session et une configuration temporaires ; elle les supprim
 `check.sh harness` exécute seulement Cucumber. Les steps manquants et les
 sélections vides échouent ; le résumé Cucumber fait foi pour le nombre exécuté.
 Le tag `@v1_1_icon` isole les scénarios de lancement par gouttière d'icône.
+Le tag `@v1_1_wheel` isole le défilement à la molette.

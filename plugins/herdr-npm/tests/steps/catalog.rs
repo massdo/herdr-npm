@@ -597,6 +597,76 @@ async fn click_outside(world: &mut BddWorld, target: String) {
     tui::left_click(world, column, row);
 }
 
+#[when("I roll the mouse wheel down on the list")]
+async fn wheel_down_list(world: &mut BddWorld) {
+    tui::wheel_on_list(world, true);
+}
+
+#[when("I roll the mouse wheel up on the list")]
+async fn wheel_up_list(world: &mut BddWorld) {
+    tui::wheel_on_list(world, false);
+}
+
+#[when("I roll the mouse wheel down on the sidebar header")]
+async fn wheel_down_header(world: &mut BddWorld) {
+    tui::wheel_on_header(world, true);
+}
+
+#[when("I roll the mouse wheel down on the pane")]
+async fn wheel_down_pane(world: &mut BddWorld) {
+    let app = require_app(world);
+    tui::wheel(world, true, app.inner.x, app.inner.y);
+}
+
+#[when("I roll the mouse wheel down until the last page")]
+async fn wheel_to_last_page(world: &mut BddWorld) {
+    use herdr_npm::adapters::tui::app::max_list_offset;
+    for _ in 0..80 {
+        let app = require_app(world);
+        let max = max_list_offset(app.scripts().len(), app.list_height());
+        if app.list_offset >= max {
+            return;
+        }
+        tui::wheel_on_list(world, true);
+    }
+    panic!("list did not reach the last page");
+}
+
+#[when("I roll the mouse wheel down until the selection is off-screen")]
+async fn wheel_selection_off_screen(world: &mut BddWorld) {
+    use herdr_npm::adapters::tui::app::max_list_offset;
+    for _ in 0..80 {
+        let app = require_app(world);
+        let height = app.list_height();
+        if height > 0
+            && (app.selected < app.list_offset || app.selected >= app.list_offset + height)
+        {
+            return;
+        }
+        let max = max_list_offset(app.scripts().len(), height);
+        assert!(
+            app.list_offset < max,
+            "could not scroll the selection off-screen"
+        );
+        tui::wheel_on_list(world, true);
+    }
+    panic!("selection stayed in view");
+}
+
+#[when("I redraw the sidebar twice at the same size")]
+async fn redraw_twice(world: &mut BddWorld) {
+    world.prev_list_offset = require_app(world).list_offset;
+    tui::draw(world);
+    tui::draw(world);
+}
+
+#[when("I left-click the play icon of the first visible row")]
+async fn click_first_visible_icon(world: &mut BddWorld) {
+    let geo = tui::geometry(world);
+    let column = tui::zone_column(world, "play icon");
+    tui::left_click(world, column, geo.list.y);
+}
+
 #[then(regex = r#"^the sidebar lists (\d+) scripts$"#)]
 async fn lists_n(world: &mut BddWorld, count: usize) {
     assert_eq!(script_names(world).len(), count);
@@ -723,6 +793,90 @@ async fn process_running(world: &mut BddWorld) {
 #[then("the selection is on the first script")]
 async fn selection_first(world: &mut BddWorld) {
     assert_eq!(require_app(world).selected, 0);
+}
+
+#[then("the selection is still on the first script")]
+async fn selection_still_first(world: &mut BddWorld) {
+    selection_first(world).await;
+}
+
+#[then("the list offset increases by 3")]
+async fn list_offset_plus_three(world: &mut BddWorld) {
+    assert_eq!(
+        require_app(world).list_offset,
+        world.prev_list_offset + 3,
+        "list offset should advance by one wheel step"
+    );
+}
+
+#[then("the list offset is unchanged")]
+async fn list_offset_unchanged(world: &mut BddWorld) {
+    assert_eq!(require_app(world).list_offset, world.prev_list_offset);
+}
+
+#[then("the list offset is 0")]
+async fn list_offset_zero(world: &mut BddWorld) {
+    assert_eq!(require_app(world).list_offset, 0);
+}
+
+#[then("the list offset is at the last full screen")]
+async fn list_offset_last_page(world: &mut BddWorld) {
+    use herdr_npm::adapters::tui::app::max_list_offset;
+    let app = require_app(world);
+    assert_eq!(
+        app.list_offset,
+        max_list_offset(app.scripts().len(), app.list_height())
+    );
+}
+
+#[then("the list offset is at most the last full screen")]
+async fn list_offset_at_most_last_page(world: &mut BddWorld) {
+    use herdr_npm::adapters::tui::app::max_list_offset;
+    let app = require_app(world);
+    let max = max_list_offset(app.scripts().len(), app.list_height());
+    assert!(
+        app.list_offset <= max,
+        "list offset {} exceeds last page {}",
+        app.list_offset,
+        max
+    );
+}
+
+#[then("the first visible script is selected")]
+async fn first_visible_selected(world: &mut BddWorld) {
+    let app = require_app(world);
+    assert_eq!(app.selected, app.list_offset);
+}
+
+#[then("a single run intent is emitted for the first visible script")]
+async fn intent_for_first_visible(world: &mut BddWorld) {
+    let app = require_app(world);
+    let name = app
+        .scripts()
+        .get(app.list_offset)
+        .expect("visible script")
+        .name
+        .clone();
+    let intents = &app.run_intents;
+    assert_eq!(
+        intents.len(),
+        1,
+        "expected a single intent, got {intents:?}"
+    );
+    assert_eq!(intents[0].script_name, name);
+}
+
+#[then("the selected script is not in the visible window")]
+async fn selected_not_visible(world: &mut BddWorld) {
+    let app = require_app(world);
+    let height = app.list_height();
+    assert!(
+        height == 0 || app.selected < app.list_offset || app.selected >= app.list_offset + height,
+        "selected {} is still in window {}+{}",
+        app.selected,
+        app.list_offset,
+        height
+    );
 }
 
 #[then("the list scrolls to keep the selection visible")]

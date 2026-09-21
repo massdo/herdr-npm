@@ -88,6 +88,7 @@ pub fn open_sidebar(world: &mut BddWorld) {
 pub fn snapshot(world: &mut BddWorld) {
     if let Some(app) = world.app.as_ref() {
         world.prev_footer_offset = app.footer_offset;
+        world.prev_list_offset = app.list_offset;
     }
 }
 
@@ -162,6 +163,31 @@ pub fn mouse_move(world: &mut BddWorld, column: u16, row: u16) {
     };
     keymap::handle_event(app, Event::Mouse(mouse(MouseEventKind::Moved, column, row)));
     draw(world);
+}
+
+pub fn wheel(world: &mut BddWorld, down: bool, column: u16, row: u16) {
+    snapshot(world);
+    let Some(app) = world.app.as_mut() else {
+        panic!("sidebar TUI is not open");
+    };
+    let kind = if down {
+        MouseEventKind::ScrollDown
+    } else {
+        MouseEventKind::ScrollUp
+    };
+    keymap::handle_event(app, Event::Mouse(mouse(kind, column, row)));
+    draw(world);
+}
+
+pub fn wheel_on_list(world: &mut BddWorld, down: bool) {
+    let geo = geometry(world);
+    assert!(geo.list.height > 0, "list rectangle has no height");
+    wheel(world, down, geo.list.x, geo.list.y);
+}
+
+pub fn wheel_on_header(world: &mut BddWorld, down: bool) {
+    let geo = geometry(world);
+    wheel(world, down, geo.header.x, geo.header.y);
 }
 
 pub fn geometry(world: &BddWorld) -> ColumnGeometry {

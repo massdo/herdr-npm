@@ -54,11 +54,7 @@ pub fn column_geometry(inner: Rect, status_line_count: usize) -> ColumnGeometry 
     let command_h = 1u16.min(inner.height.saturating_sub(header_h));
     let status_h =
         (status_line_count as u16).min(inner.height.saturating_sub(header_h + command_h));
-    let list_h = inner
-        .height
-        .saturating_sub(header_h + command_h + status_h)
-        .max(1)
-        .min(inner.height.saturating_sub(header_h));
+    let list_h = inner.height.saturating_sub(header_h + command_h + status_h);
 
     let header = Rect::new(inner.x, inner.y, inner.width, header_h);
     let list = Rect::new(

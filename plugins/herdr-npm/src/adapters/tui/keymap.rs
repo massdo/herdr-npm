@@ -1,4 +1,5 @@
 use crossterm::event::{Event, KeyEventKind};
+use ratatui::layout::Rect;
 
 use super::app::SidebarApp;
 
@@ -11,9 +12,12 @@ pub fn handle_event(app: &mut SidebarApp, event: Event) -> bool {
             false
         }
         Event::Resize(width, height) => {
-            app.inner.width = width.saturating_sub(2);
-            app.inner.height = height.saturating_sub(2);
-            app.ensure_visible();
+            app.set_inner(Rect {
+                x: app.inner.x,
+                y: app.inner.y,
+                width: width.saturating_sub(2),
+                height: height.saturating_sub(2),
+            });
             false
         }
         _ => false,
