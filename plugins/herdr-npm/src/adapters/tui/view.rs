@@ -94,21 +94,21 @@ pub fn column_layout(
     } else {
         Rect::new(0, 0, 0, 0)
     };
-    let search = Rect::new(
+    let separator = Rect::new(
         inner.x,
         inner.y.saturating_add(header.height),
         inner.width,
-        search_h,
-    );
-    let separator = Rect::new(
-        inner.x,
-        search.y.saturating_add(search.height),
-        inner.width,
         separator_h,
+    );
+    let search = Rect::new(
+        inner.x,
+        separator.y.saturating_add(separator.height),
+        inner.width,
+        search_h,
     );
     let list = Rect::new(
         inner.x,
-        separator.y.saturating_add(separator.height),
+        search.y.saturating_add(search.height),
         inner.width,
         list_h,
     );
@@ -547,6 +547,42 @@ mod tests {
         let geo = column_layout(inner, 1, false, true, 1, true);
         assert_eq!(geo.separator.height, 0);
         assert_eq!(geo.list.height, 1);
+    }
+
+    #[test]
+    fn search_field_sits_below_the_header_separator() {
+        let inner = Rect::new(1, 1, 30, 22);
+        let geo = column_layout(inner, 1, true, true, 1, true);
+        assert_eq!(geo.separator.height, 1);
+        assert_eq!(geo.search.height, 1);
+        assert_eq!(geo.separator.y, inner.y + geo.header.height);
+        assert_eq!(
+            geo.search.y,
+            geo.separator.y + geo.separator.height,
+            "search must not sit between the header and its separator"
+        );
+        assert_eq!(geo.list.y, geo.search.y + geo.search.height);
+
+        let (app, terminal) = paint(Theme::ascii(), 32, 24, |app| {
+            app.search.mode = SearchMode::Editing;
+            app.search.query = "bu".into();
+        });
+        let geo = app.layout();
+        let buffer = terminal.backend().buffer();
+        let sep: String = (geo.separator.x..geo.separator.x + geo.separator.width)
+            .map(|x| buffer[(x, geo.separator.y)].symbol().to_string())
+            .collect();
+        assert!(
+            sep.contains('─'),
+            "separator row should be painted at geo.separator.y, got {sep:?}"
+        );
+        let field: String = (geo.search.x..geo.search.x + geo.search.width)
+            .map(|x| buffer[(x, geo.search.y)].symbol().to_string())
+            .collect();
+        assert!(
+            field.contains("bu"),
+            "query should be painted at geo.search.y, got {field:?}"
+        );
     }
 
     #[test]

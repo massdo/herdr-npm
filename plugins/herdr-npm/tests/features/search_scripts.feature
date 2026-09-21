@@ -23,6 +23,7 @@ Feature: Search scripts by fuzzy name
     When I press "/"
     Then the search field is open
     And the search query is ""
+    And the column shows a separator under the header
 
   Scenario: Ctrl+F opens the search field
     When I press Ctrl+F

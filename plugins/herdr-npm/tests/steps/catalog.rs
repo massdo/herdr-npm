@@ -1069,6 +1069,18 @@ async fn has_separator(world: &mut BddWorld) {
         geo.separator.height, 1,
         "separator rectangle should be one row"
     );
+    assert_eq!(
+        geo.separator.y,
+        geo.header.y.saturating_add(geo.header.height),
+        "separator must sit directly under the header"
+    );
+    if geo.search.height > 0 {
+        assert_eq!(
+            geo.search.y,
+            geo.separator.y.saturating_add(geo.separator.height),
+            "search field must sit below the header separator"
+        );
+    }
     assert!(
         world.screen.contains('─'),
         "missing separator:\n{}",
