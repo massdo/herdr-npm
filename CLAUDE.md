@@ -1,6 +1,6 @@
 # herdr-npm — technical notes
 
-Product behavior is documented in README.md and the Gherkin files. This file records observations against Herdr 0.9.1 / protocol 22. They are not new product arbitration.
+Product behavior is documented in `README.md` and the Gherkin files under `tests/features/`. This file records observations against Herdr 0.9.1 / protocol 22. They are not new product arbitration.
 
 ## Socket
 

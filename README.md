@@ -80,6 +80,13 @@ Enter or a left mouse down on a row's play icon starts `npm run -- <script>` or 
 
 The restored column is inert (session token `herdr_npm_sidebar=v1` is gone). Close that pane with Herdr, then toggle again. There is no automatic replacement.
 
+## Security
+
+Only run scripts from projects you trust. Scripts run through npm or pnpm in a
+Herdr shell tab, with your user's permissions and environment; they are not
+sandboxed. Package-manager lifecycle scripts may also run. See [SECURITY.md](SECURITY.md)
+for the reporting policy.
+
 ## Validate
 
 ```sh
