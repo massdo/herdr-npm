@@ -1,6 +1,10 @@
 # Audit sécurité et CI GitHub — 23 septembre 2026
 
-Périmètre : dépôt privé `massdo/herdr-npm`, branche `main` à
+Archive historique : cet audit concerne l’ancien dépôt privé
+`massdo/herdr-npm-archived`. Le nouveau dépôt `massdo/herdr-npm` a été créé
+séparément avec la seule branche `main`.
+
+Périmètre : dépôt privé `massdo/herdr-npm-archived`, branche `main` à
 `746aa12a20369cedf376842fc6d6deba899b3d8f`. Cet audit confronte les
 fichiers du dépôt aux réponses de l'API GitHub et aux exécutions Actions ; il
 n'a pas modifié les réglages du dépôt.
@@ -19,18 +23,18 @@ public to enable this feature ». On ne peut donc pas certifier le contenu d'un
 
 | Contrôle | État constaté | Preuve / limite |
 | --- | --- | --- |
-| Politique `SECURITY.md` | Présente sur `main`. Elle couvre le code courant, explique le risque d'exécuter des scripts npm/pnpm et indique correctement que le dépôt est privé et que le formulaire de signalement n'est pas encore disponible. | Fichier `SECURITY.md` au commit audité ; `GET /repos/massdo/herdr-npm` renvoie `private: true`. |
+| Politique `SECURITY.md` | Présente sur `main`. Elle couvre le code courant, explique le risque d'exécuter des scripts npm/pnpm et indique correctement que le dépôt est privé et que le formulaire de signalement n'est pas encore disponible. | Fichier `SECURITY.md` au commit audité ; `GET /repos/massdo/herdr-npm-archived` renvoie `private: true`. |
 | Signalement privé des vulnérabilités par des tiers | Indisponible actuellement. | GitHub réserve [cette fonction aux dépôts publics](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository). L'URL mentionnée dans `SECURITY.md` n'est pas encore un canal utilisable par des chercheurs externes. |
-| Alertes Dependabot | Activées ; zéro alerte retournée lors de l'audit. | `GET /repos/massdo/herdr-npm/vulnerability-alerts` → HTTP 204 ; `GET /repos/massdo/herdr-npm/dependabot/alerts` → liste vide. Zéro alerte ne prouve pas l'absence de vulnérabilités. |
-| Secret scanning du dépôt | Désactivé. | `GET /repos/massdo/herdr-npm/secret-scanning/alerts` → HTTP 404, message explicite « Secret scanning is disabled on this repository. » |
-| Push protection du dépôt | Aucun blocage de secrets confirmé ; indisponible tant que la protection des secrets du dépôt n'est pas activée. | Le bloc `security_and_analysis` de `GET /repos/massdo/herdr-npm` vaut `null`, donc l'état individuel n'est pas lisible par cette réponse. Selon [GitHub](https://docs.github.com/en/code-security/concepts/secret-security/push-protection), la push protection du dépôt exige GitHub Secret Protection et est désactivée par défaut. Ce verdict est une déduction à partir du secret scanning désactivé et de cette dépendance, pas une lecture directe du commutateur. La protection personnelle des push vers les dépôts publics est distincte. |
+| Alertes Dependabot | Activées ; zéro alerte retournée lors de l'audit. | `GET /repos/massdo/herdr-npm-archived/vulnerability-alerts` → HTTP 204 ; `GET /repos/massdo/herdr-npm-archived/dependabot/alerts` → liste vide. Zéro alerte ne prouve pas l'absence de vulnérabilités. |
+| Secret scanning du dépôt | Désactivé. | `GET /repos/massdo/herdr-npm-archived/secret-scanning/alerts` → HTTP 404, message explicite « Secret scanning is disabled on this repository. » |
+| Push protection du dépôt | Aucun blocage de secrets confirmé ; indisponible tant que la protection des secrets du dépôt n'est pas activée. | Le bloc `security_and_analysis` de `GET /repos/massdo/herdr-npm-archived` vaut `null`, donc l'état individuel n'est pas lisible par cette réponse. Selon [GitHub](https://docs.github.com/en/code-security/concepts/secret-security/push-protection), la push protection du dépôt exige GitHub Secret Protection et est désactivée par défaut. Ce verdict est une déduction à partir du secret scanning désactivé et de cette dépendance, pas une lecture directe du commutateur. La protection personnelle des push vers les dépôts publics est distincte. |
 
 ## Workflows et exécutions
 
 | Moment | Déclenchement et couverture | Exécutions observées |
 | --- | --- | --- |
-| Avant fusion | `ci.yml` et `e2e.yml` se déclenchent sur `pull_request` sans filtre de branche. Chaque workflow exécute une matrice `macos-latest` / `ubuntu-latest`. | PR [#2](https://github.com/massdo/herdr-npm/pull/2) : [CI](https://github.com/massdo/herdr-npm/actions/runs/35600986971) et [E2E](https://github.com/massdo/herdr-npm/actions/runs/35600986981), quatre jobs réussis avant la fusion du 21 septembre à 12:49 UTC. PR [#1](https://github.com/massdo/herdr-npm/pull/1) : [CI](https://github.com/massdo/herdr-npm/actions/runs/35559348505) et [E2E](https://github.com/massdo/herdr-npm/actions/runs/35559348509) réussis. Des échecs antérieurs sont aussi visibles, par exemple [E2E](https://github.com/massdo/herdr-npm/actions/runs/35589612575) et [CI](https://github.com/massdo/herdr-npm/actions/runs/35586569419) sur la PR #2. |
-| Après fusion sur `main` | Les deux workflows se déclenchent sur `push` vers `main`. | Après la PR #2 : [CI](https://github.com/massdo/herdr-npm/actions/runs/35601766133) et [E2E](https://github.com/massdo/herdr-npm/actions/runs/35601765796) réussis. Au dernier commit audité : [CI](https://github.com/massdo/herdr-npm/actions/runs/35734259648) et [E2E](https://github.com/massdo/herdr-npm/actions/runs/35734259423) réussis, avec les quatre jobs et leurs étapes en succès. |
+| Avant fusion | `ci.yml` et `e2e.yml` se déclenchent sur `pull_request` sans filtre de branche. Chaque workflow exécute une matrice `macos-latest` / `ubuntu-latest`. | PR [#2](https://github.com/massdo/herdr-npm-archived/pull/2) : [CI](https://github.com/massdo/herdr-npm-archived/actions/runs/35600986971) et [E2E](https://github.com/massdo/herdr-npm-archived/actions/runs/35600986981), quatre jobs réussis avant la fusion du 21 septembre à 12:49 UTC. PR [#1](https://github.com/massdo/herdr-npm-archived/pull/1) : [CI](https://github.com/massdo/herdr-npm-archived/actions/runs/35559348505) et [E2E](https://github.com/massdo/herdr-npm-archived/actions/runs/35559348509) réussis. Des échecs antérieurs sont aussi visibles, par exemple [E2E](https://github.com/massdo/herdr-npm-archived/actions/runs/35589612575) et [CI](https://github.com/massdo/herdr-npm-archived/actions/runs/35586569419) sur la PR #2. |
+| Après fusion sur `main` | Les deux workflows se déclenchent sur `push` vers `main`. | Après la PR #2 : [CI](https://github.com/massdo/herdr-npm-archived/actions/runs/35601766133) et [E2E](https://github.com/massdo/herdr-npm-archived/actions/runs/35601765796) réussis. Au dernier commit audité : [CI](https://github.com/massdo/herdr-npm-archived/actions/runs/35734259648) et [E2E](https://github.com/massdo/herdr-npm-archived/actions/runs/35734259423) réussis, avec les quatre jobs et leurs étapes en succès. |
 
 `scripts/check.sh all` lance `cargo fmt --check`, `cargo clippy --all-targets
 -- -D warnings` et `cargo test` (tests Rust et Cucumber). `e2e.yml` installe
@@ -41,7 +45,7 @@ vers l'ancienne branche `feat/herdr-npm-v1` ; cette branche n'est plus nécessai
 pour couvrir les PR.
 
 Les jobs Actions sont des **signaux**, pas des portes de fusion :
-`GET /repos/massdo/herdr-npm/branches/main` renvoie `protected: false` et
+`GET /repos/massdo/herdr-npm-archived/branches/main` renvoie `protected: false` et
 `required_status_checks: {checks: [], contexts: [], enforcement_level: "off"}`.
 Les endpoints de rulesets et de protection de branche retournent HTTP 403
 avec le message de limitation de plan cité plus haut. Selon la

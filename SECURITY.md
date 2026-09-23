@@ -8,16 +8,12 @@ published yet, and older commits do not receive separate security backports.
 ## Reporting a vulnerability
 
 Use GitHub's **Report a vulnerability** form at
-<https://github.com/massdo/herdr-npm/security/advisories/new> when private
-vulnerability reporting is enabled. Include the affected commit, operating
-system, Herdr version, impact, and a minimal reproduction without credentials
-or personal data.
+<https://github.com/massdo/herdr-npm/security/advisories/new>. Include the
+affected commit, operating system, Herdr version, impact, and a minimal
+reproduction without credentials or personal data.
 
-The repository is currently private, and that form is not available yet.
-Enabling and verifying private vulnerability reporting is a publication
-requirement. If the form is unavailable, do not post vulnerability details in
-a public issue or pull request; wait until a private reporting channel is
-available.
+If the form is unavailable, do not post vulnerability details in a public issue
+or pull request; wait until a private reporting channel is available.
 
 ## Trust boundary
 
