@@ -12,9 +12,24 @@ Column of npm/pnpm scripts for the current package, as a Herdr plugin.
 
 Heartbeat, marketplace listing, Windows, yarn/bun as managers, and prebuilt binaries are out of V1.
 
-## Install from a git SHA
+## Install from GitHub
 
-The V1 commit is installable by SHA without a GitHub release:
+Make sure `cargo --version` reports **1.89** or newer. If Homebrew's older Cargo
+takes precedence over an installed rustup toolchain, run
+`export PATH="$HOME/.cargo/bin:$PATH"` in your shell first.
+
+Install the current `main` branch and confirm that Herdr enabled the plugin:
+
+```sh
+herdr plugin install massdo/herdr-npm --yes
+herdr plugin list
+```
+
+In Herdr, open a project with a `package.json`, then run
+`herdr plugin action invoke herdr-npm.toggle` from a shell to open the scripts
+column. This plugin repository itself does not contain a `package.json`.
+
+To install an exact commit instead, pass its SHA (no release tag is required):
 
 ```sh
 herdr plugin install massdo/herdr-npm --ref <SHA> --yes
