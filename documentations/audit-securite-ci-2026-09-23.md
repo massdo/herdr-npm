@@ -89,7 +89,12 @@ associés, ont été examinés automatiquement pour les adresses, chemins locaux
 IP et marqueurs de credentials : aucun de ces motifs n'a été trouvé. Ce scan
 n'est pas une garantie d'absence de données sensibles.
 
-Une adresse Gmail figure toutefois dans les métadonnées d'auteur/committer de
-l'historique. Sa publication serait permanente dans les commits existants.
-L'identité du titulaire et son accord de publication restent à vérifier avant
-de rendre le dépôt public. Le rapport ne reproduit pas cette adresse.
+L'historique de `main` ne contient **aucune** adresse Gmail (37 commits au
+contrôle du 23 septembre). Une adresse Gmail figure dans les métadonnées
+d'auteur et de committer de 27 commits atteignables par les anciennes
+références GitHub `refs/pull/1/head` et `refs/pull/2/head`. Ces références
+seraient exposées avec les PR si le dépôt actuel devenait public. Réécrire
+`main` ne les effacerait pas ; [GitHub décrit les limites des réécritures
+d'historique](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository),
+notamment pour les références de PR et les vues mises en cache. Le rapport ne
+reproduit pas l'adresse.
