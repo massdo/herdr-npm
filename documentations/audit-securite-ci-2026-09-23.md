@@ -58,10 +58,11 @@ la protection des branches privées requiert une offre adaptée.
    publication est reportée.
 2. **P1 — fusion :** rendre les quatre jobs `offline (macos-latest)`,
    `offline (ubuntu-latest)`, `recipe (macos-latest)` et
-   `recipe (ubuntu-latest)` obligatoires sur `main` via protection de branche
-   ou ruleset, après passage en public ou changement de plan. Exiger une PR et
-   vérifier avec une PR d'essai en échec que le bouton de fusion est bloqué.
-   D'ici là, la réussite des jobs dépend d'une discipline manuelle.
+   `recipe (ubuntu-latest)`, ainsi que le nouveau job `secrets`, obligatoires
+   sur `main` via protection de branche ou ruleset, après passage en public ou
+   changement de plan. Exiger une PR et vérifier avec une PR d'essai en échec
+   que le bouton de fusion est bloqué. D'ici là, la réussite des jobs dépend
+   d'une discipline manuelle.
 3. **P1 — secrets :** lors du changement de visibilité ou de plan, vérifier le
    secret scanning et activer la push protection du dépôt si la fonction est
    disponible. Pour le dépôt privé actuel, utiliser un contrôle de secrets
@@ -78,3 +79,17 @@ Sources locales : `SECURITY.md`, `.github/workflows/ci.yml`,
 `scripts/install-smoke.sh` au commit audité. Les réponses API et les exécutions
 GitHub ont été consultées le 23 septembre 2026 avec un compte administrateur
 du dépôt. Les liens Actions sont privés et nécessitent cet accès.
+
+## Vérification complémentaire avant publication
+
+Le 23 septembre, un scan local Gitleaks 8.30.1 sur les 60 commits accessibles
+par `main` et les références GitHub des PR #1 et #2 n'a produit aucun
+signalement. Les titres et corps des PR, ainsi que les commentaires et avis
+associés, ont été examinés automatiquement pour les adresses, chemins locaux,
+IP et marqueurs de credentials : aucun de ces motifs n'a été trouvé. Ce scan
+n'est pas une garantie d'absence de données sensibles.
+
+Une adresse Gmail figure toutefois dans les métadonnées d'auteur/committer de
+l'historique. Sa publication serait permanente dans les commits existants.
+L'identité du titulaire et son accord de publication restent à vérifier avant
+de rendre le dépôt public. Le rapport ne reproduit pas cette adresse.
