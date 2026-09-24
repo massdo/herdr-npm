@@ -3,7 +3,8 @@
 ## Prérequis
 
 - Herdr 0.9.1 ou une version compatible ;
-- Rust 1.89 ;
+- Rust 1.89 pour compiler (inutile quand l'installation retient un binaire
+  précompilé vérifié) ;
 - macOS ou Linux ;
 - `npm` ou `pnpm` disponible dans le `PATH`.
 
@@ -100,10 +101,45 @@ sh scripts/e2e.sh
 5. Ajoutez le topic GitHub `herdr-plugin` pour demander l'indexation publique.
    GitHub autorise les topics sur les dépôts privés ; c'est l'indexation du
    marketplace qui nécessite un dépôt public.
-6. Créez un tag, par exemple `v0.1.0`, afin de désigner une version stable
-   validée, et mettez à jour les versions prises en charge dans `SECURITY.md`.
+6. Publiez une release (section suivante), puis mettez à jour les versions
+   prises en charge dans `SECURITY.md`.
 
 Le marketplace Herdr indexe automatiquement les dépôts publics portant le topic `herdr-plugin`. L'actualisation peut prendre environ trente minutes.
+
+## Publier une release
+
+1. Une seule fois, avant la première publication : dans les réglages GitHub du
+   dépôt, section « Releases », cochez **Enable release immutability**.
+   L'immutabilité ne s'applique qu'aux releases publiées ensuite. Vérifiez que
+   `gh api repos/massdo/herdr-npm/immutable-releases` renvoie
+   `"enabled": true`.
+2. Alignez la version dans `Cargo.toml`, `Cargo.lock` et `herdr-plugin.toml`,
+   fusionnez sur `main` et attendez une CI verte.
+3. Créez le tag sur ce commit validé, puis poussez-le :
+
+   ```sh
+   git tag -a v0.1.0 <SHA> -m v0.1.0
+   git push origin v0.1.0
+   ```
+
+4. Le workflow `release` refuse un tag qui diverge de ces trois versions,
+   relance `sh scripts/check.sh all` sur macOS et Linux, puis compile les trois
+   binaires sur leurs architectures. Il assemble `herdr-npm-<triple>`,
+   `SHA256SUMS` et `SOURCE_COMMIT` depuis ce même commit, crée une release
+   draft, y charge les fichiers, les retélécharge pour les comparer, vérifie
+   que le tag désigne toujours ce commit, puis publie. Relancer le workflow
+   reprend un draft ; une release déjà publiée n'est jamais écrasée.
+5. Validez l'installation depuis la release publique sur macOS arm64 et sur
+   Linux x86_64, sur des machines dont `/usr/bin`, `/bin`, `/usr/sbin` et
+   `/sbin` ne contiennent pas Rust, puis conservez la sortie comme preuve :
+
+   ```sh
+   sh scripts/install-smoke.sh <SHA du tag> --prebuilt
+   ```
+
+   Le script construit un environnement jetable sans Rust et vérifie le
+   commit, le hash, le manifeste, le message de téléchargement et l'absence
+   de compilation, puis ouvre la colonne, lance `hello` et la referme.
 
 Les utilisateurs pourront installer la branche par défaut avec :
 
@@ -111,10 +147,18 @@ Les utilisateurs pourront installer la branche par défaut avec :
 herdr plugin install massdo/herdr-npm --yes
 ```
 
-Ils pourront aussi installer une version précise avec :
+Ils pourront aussi installer une version publiée, ce qui est recommandé :
 
 ```sh
 herdr plugin install massdo/herdr-npm --ref v0.1.0 --yes
 ```
 
-Herdr récupère alors le dépôt, exécute la commande de compilation déclarée dans `herdr-plugin.toml`, puis active le plugin pour l'utilisateur.
+Herdr récupère alors le dépôt et exécute `scripts/fetch-or-build.sh`, déclaré
+dans `herdr-plugin.toml`. Sur macOS arm64, macOS x86_64 et Linux x86_64, ce
+script installe le binaire publié quand la release a été construite depuis ce
+commit exact et que `SOURCE_COMMIT` et `SHA256SUMS` le confirment. Dans tous
+les autres cas, il compile depuis les sources avec `scripts/build.sh` et
+indique la raison sur stderr. Herdr 0.9.1 n'affiche la sortie du build qu'en
+cas d'échec ; pour conserver ces lignes, définissez `HERDR_NPM_BUILD_LOG`
+avec le chemin d'un fichier avant l'installation. Herdr active ensuite le
+plugin pour l'utilisateur.
