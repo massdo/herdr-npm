@@ -106,7 +106,8 @@ async fn given_manager(world: &mut BddWorld, manager: String) {
         .unwrap_or_default();
     if current != manager {
         if let Some(app) = world.app.as_mut()
-            && let Ok(catalog) = app.listed.catalog.as_mut()
+            && let Ok(herdr_npm::domain::catalog::ProjectCatalog::Package(catalog)) =
+                app.listed.catalog.as_mut()
         {
             catalog.manager = if manager == "pnpm" {
                 PackageManager::Pnpm

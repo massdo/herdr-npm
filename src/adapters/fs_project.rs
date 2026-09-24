@@ -1,12 +1,20 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::application::ports::{LoadedCatalog, ProjectPort};
-use crate::domain::error::AppError;
-use crate::domain::package_manager::{Lockfiles, parse_package_json};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use serde::Deserialize;
+use serde_json::Value;
+use walkdir::WalkDir;
 
-/// Reads the nearest package.json. Does not skip an invalid or empty nested
-/// package in favour of a parent.
+use crate::application::ports::{LoadedCatalog, ProjectPort};
+use crate::domain::catalog::{PackageManager, ProjectCatalog, WorkspaceCatalog, WorkspacePackage};
+use crate::domain::error::AppError;
+use crate::domain::package_manager::{
+    Lockfiles, package_manager_signal, parse_package_json, parse_workspace_package,
+};
+
+/// Discovers declared workspaces, or the nearest standalone package.
 pub struct FsProject {
     /// Walk stops at this directory so tests cannot see the real machine root.
     cap: Option<PathBuf>,
@@ -38,47 +46,359 @@ impl ProjectPort for FsProject {
                 Err(error) => return LoadedCatalog::from_error(error.into()),
             }
         };
-        let mut current = start;
+        let mut nearest_package = None;
+        let mut inside_git_boundary = true;
+        let mut current = start.clone();
         loop {
             let candidate = current.join("package.json");
-            let found = match fs::symlink_metadata(&candidate) {
-                Ok(_) => true,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-                Err(_) => {
+            if nearest_package.is_none() && exists(&candidate) {
+                nearest_package = Some(current.clone());
+            }
+            let declaration = if inside_git_boundary {
+                workspace_declaration(&current)
+            } else {
+                Ok(None)
+            };
+            match declaration {
+                Ok(Some((path, patterns))) => {
+                    let workspace =
+                        discover_workspace(&current, &path, &patterns, nearest_package.as_deref());
+                    match workspace {
+                        Ok(workspace)
+                            if nearest_package.as_ref().is_none_or(|package| {
+                                package == &current
+                                    || workspace.packages.iter().any(|p| {
+                                        p.root
+                                            == package
+                                                .canonicalize()
+                                                .unwrap_or_else(|_| package.clone())
+                                    })
+                            }) =>
+                        {
+                            return LoadedCatalog {
+                                root: Some(workspace.root.clone()),
+                                catalog: Ok(ProjectCatalog::Workspace(workspace)),
+                            };
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            return LoadedCatalog {
+                                root: Some(current),
+                                catalog: Err(error),
+                            };
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
                     return LoadedCatalog {
                         root: Some(current),
-                        catalog: Err(AppError::CannotReadPackageJson { path: candidate }),
+                        catalog: Err(error),
                     };
                 }
-            };
-            if found {
-                let bytes = match fs::read(&candidate) {
-                    Ok(bytes) => bytes,
-                    Err(_) => {
-                        return LoadedCatalog {
-                            root: Some(current),
-                            catalog: Err(AppError::CannotReadPackageJson { path: candidate }),
-                        };
-                    }
-                };
-                let lockfiles = Lockfiles {
-                    pnpm: current.join("pnpm-lock.yaml").is_file(),
-                    npm: current.join("package-lock.json").is_file(),
-                };
-                return LoadedCatalog {
-                    root: Some(current.clone()),
-                    catalog: parse_package_json(&current, &bytes, lockfiles),
-                };
             }
-            if self.cap.as_ref().is_some_and(|cap| current == *cap) {
-                return LoadedCatalog::from_error(AppError::NoPackageJson);
+            inside_git_boundary &= !exists(&current.join(".git"));
+            if (!inside_git_boundary && nearest_package.is_some())
+                || self.cap.as_ref().is_some_and(|cap| {
+                    current == *cap || current == cap.canonicalize().unwrap_or_else(|_| cap.clone())
+                })
+            {
+                break;
             }
             match current.parent() {
                 Some(parent) => current = parent.to_path_buf(),
-                None => return LoadedCatalog::from_error(AppError::NoPackageJson),
+                None => break,
+            }
+        }
+        match nearest_package {
+            Some(root) => LoadedCatalog {
+                catalog: read_manifest(&root)
+                    .and_then(|bytes| parse_package_json(&root, &bytes, lockfiles(&root)))
+                    .map(ProjectCatalog::Package),
+                root: Some(root),
+            },
+            None => LoadedCatalog::from_error(AppError::NoPackageJson),
+        }
+    }
+}
+
+fn exists(path: &Path) -> bool {
+    !matches!(fs::symlink_metadata(path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+}
+
+fn read_manifest(root: &Path) -> Result<Vec<u8>, AppError> {
+    let path = root.join("package.json");
+    fs::read(&path).map_err(|_| AppError::CannotReadPackageJson { path })
+}
+
+fn lockfiles(root: &Path) -> Lockfiles {
+    Lockfiles {
+        pnpm: root.join("pnpm-lock.yaml").is_file(),
+        npm: root.join("package-lock.json").is_file(),
+    }
+}
+
+fn invalid_workspace(path: &Path, detail: impl ToString) -> AppError {
+    AppError::InvalidWorkspace {
+        path: path.to_path_buf(),
+        detail: detail.to_string(),
+    }
+}
+
+fn workspace_declaration(root: &Path) -> Result<Option<(PathBuf, Vec<String>)>, AppError> {
+    let yaml = root.join("pnpm-workspace.yaml");
+    if exists(&yaml) {
+        #[derive(Deserialize)]
+        struct PnpmWorkspace {
+            packages: Vec<serde_yaml_ng::Value>,
+        }
+        let bytes = fs::read(&yaml).map_err(|e| invalid_workspace(&yaml, e))?;
+        let config: PnpmWorkspace =
+            serde_yaml_ng::from_slice(&bytes).map_err(|e| invalid_workspace(&yaml, e))?;
+        let packages = config
+            .packages
+            .into_iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| invalid_workspace(&yaml, "package patterns must be strings"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(Some((yaml, packages)));
+    }
+    let json = root.join("package.json");
+    // A broken package remains a local package error unless it declares a workspace.
+    let Some(value) = fs::read(&json)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+    else {
+        return Ok(None);
+    };
+    let Some(workspaces) = value.get("workspaces") else {
+        return Ok(None);
+    };
+    let packages = if workspaces.is_object() {
+        workspaces.get("packages").unwrap_or(&Value::Null)
+    } else {
+        workspaces
+    };
+    let patterns: Vec<String> =
+        serde_json::from_value(packages.clone()).map_err(|e| invalid_workspace(&json, e))?;
+    Ok(Some((json, patterns)))
+}
+
+struct WalkScope {
+    prefix: PathBuf,
+    max_depth: usize,
+}
+
+impl WalkScope {
+    fn new(pattern: &str) -> Self {
+        // Only literal components can constrain the walk. Globset remains the
+        // authority for matching, including alternatives and escaped literals.
+        let prefix = pattern
+            .split('/')
+            .take_while(|part| !part.contains(['*', '?', '[', ']', '{', '}', '\\']))
+            .collect();
+        // Character classes can match separators, even with literal_separator.
+        // Keep those and escaped/recursive patterns unbounded conservatively.
+        let max_depth = if pattern.contains("**") || pattern.contains(['[', '\\']) {
+            usize::MAX
+        } else {
+            pattern.split('/').count()
+        };
+        Self { prefix, max_depth }
+    }
+
+    fn allows(&self, relative: &Path, depth: usize) -> bool {
+        depth <= self.max_depth
+            && (relative.starts_with(&self.prefix) || self.prefix.starts_with(relative))
+    }
+}
+
+struct WorkspacePatterns {
+    includes: GlobSet,
+    excludes: GlobSet,
+    scopes: Vec<WalkScope>,
+}
+
+impl WorkspacePatterns {
+    fn directories<'a>(
+        &'a self,
+        root: &'a Path,
+    ) -> impl Iterator<Item = Result<walkdir::DirEntry, walkdir::Error>> + 'a {
+        WalkDir::new(root)
+            .follow_links(true)
+            .max_depth(self.scopes.iter().map(|s| s.max_depth).max().unwrap_or(0))
+            .into_iter()
+            .filter_entry(move |entry| {
+                if entry.depth() == 0 {
+                    return true;
+                }
+                let relative = entry.path().strip_prefix(root).expect("walk inside root");
+                if !entry.file_type().is_dir()
+                    || ignored(relative)
+                    || !self
+                        .scopes
+                        .iter()
+                        .any(|s| s.allows(relative, entry.depth()))
+                {
+                    return false;
+                }
+                entry
+                    .path()
+                    .canonicalize()
+                    .is_ok_and(|path| path.strip_prefix(root).is_ok_and(|p| !ignored(p)))
+            })
+    }
+}
+
+fn pattern_sets(path: &Path, patterns: &[String]) -> Result<WorkspacePatterns, AppError> {
+    let mut includes = GlobSetBuilder::new();
+    let mut excludes = GlobSetBuilder::new();
+    let mut scopes = Vec::new();
+    for raw in patterns {
+        let (negative, pattern) = raw
+            .strip_prefix('!')
+            .map(|p| (true, p))
+            .unwrap_or((false, raw));
+        let pattern = pattern
+            .strip_prefix("./")
+            .unwrap_or(pattern)
+            .trim_end_matches('/');
+        if pattern.is_empty()
+            || Path::new(pattern).is_absolute()
+            || pattern.split('/').any(|part| part == "..")
+        {
+            return Err(invalid_workspace(
+                path,
+                format!("invalid package pattern {raw:?}"),
+            ));
+        }
+        let glob = GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .map_err(|e| invalid_workspace(path, e))?;
+        if negative {
+            excludes.add(glob);
+        } else {
+            includes.add(glob);
+            scopes.push(WalkScope::new(pattern));
+        }
+    }
+    Ok(WorkspacePatterns {
+        includes: includes.build().map_err(|e| invalid_workspace(path, e))?,
+        excludes: excludes.build().map_err(|e| invalid_workspace(path, e))?,
+        scopes,
+    })
+}
+
+fn ignored(path: &Path) -> bool {
+    path.components()
+        .any(|part| part.as_os_str() == "node_modules" || part.as_os_str() == ".git")
+}
+
+fn discover_workspace(
+    root: &Path,
+    declaration: &Path,
+    patterns: &[String],
+    active: Option<&Path>,
+) -> Result<WorkspaceCatalog, AppError> {
+    let patterns = pattern_sets(declaration, patterns)?;
+    let root = root
+        .canonicalize()
+        .map_err(|e| invalid_workspace(declaration, e))?;
+    let mut members = BTreeSet::new();
+    // Members are sorted by their canonical path below. Sorting walkdir itself
+    // would eagerly read even the directories filter_entry is about to prune.
+    for entry in patterns.directories(&root) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            // Inaccessible subtrees and broken links must not hide other packages.
+            // Members registered before descent retain their own manifest error.
+            Err(_) => continue,
+        };
+        if entry.depth() == 0 || !entry.file_type().is_dir() {
+            continue;
+        }
+        let relative = entry.path().strip_prefix(&root).expect("walk inside root");
+        if patterns.includes.is_match(relative)
+            && !patterns.excludes.is_match(relative)
+            && exists(&entry.path().join("package.json"))
+        {
+            let canonical = entry
+                .path()
+                .canonicalize()
+                .map_err(|e| invalid_workspace(declaration, e))?;
+            // Exclusions also apply when an included alias points to an excluded member.
+            if !patterns
+                .excludes
+                .is_match(canonical.strip_prefix(&root).expect("filtered root"))
+            {
+                members.insert(canonical);
             }
         }
     }
+    members.remove(&root);
+    let roots = exists(&root.join("package.json"))
+        .then_some(root.clone())
+        .into_iter()
+        .chain(members);
+    let packages = roots
+        .map(|package_root| {
+            let relative_path = if package_root == root {
+                PathBuf::from(".")
+            } else {
+                package_root.strip_prefix(&root).unwrap().to_path_buf()
+            };
+            let catalog = if package_root
+                .join("package.json")
+                .canonicalize()
+                .is_ok_and(|path| !path.starts_with(&root))
+            {
+                Err(AppError::CannotReadPackageJson {
+                    path: package_root.join("package.json"),
+                })
+            } else {
+                read_manifest(&package_root).and_then(|bytes| {
+                    parse_workspace_package(
+                        &package_root,
+                        &bytes,
+                        inherited_manager(&package_root, &root),
+                    )
+                })
+            };
+            WorkspacePackage {
+                root: package_root,
+                relative_path,
+                catalog,
+            }
+        })
+        .collect();
+    Ok(WorkspaceCatalog {
+        root,
+        packages,
+        active_package: active.map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf())),
+    })
+}
+
+fn inherited_manager(package: &Path, root: &Path) -> PackageManager {
+    for current in package.ancestors() {
+        let value = read_manifest(current)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+        if let Some(manager) = package_manager_signal(
+            value.as_ref().and_then(|v| v.get("packageManager")),
+            lockfiles(current),
+        ) {
+            return manager;
+        }
+        if current == root {
+            break;
+        }
+    }
+    PackageManager::Npm
 }
 
 #[cfg(test)]
@@ -115,7 +435,8 @@ mod tests {
         );
         write(&root.join("app/src/components/.keep"), "");
         let loaded = FsProject::capped(root.clone()).load_catalog(&root.join("app/src/components"));
-        let catalog = loaded.catalog.unwrap();
+        let project = loaded.catalog.unwrap();
+        let catalog = project.first_package().unwrap();
         assert_eq!(loaded.root.as_deref(), Some(root.join("app").as_path()));
         assert_eq!(catalog.display_name, "app");
         fs::remove_dir_all(&root).ok();
@@ -168,7 +489,8 @@ mod tests {
         );
         write(&root.join("pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
         let loaded = FsProject::capped(root.clone()).load_catalog(&root.join("app"));
-        let catalog = loaded.catalog.unwrap();
+        let project = loaded.catalog.unwrap();
+        let catalog = project.first_package().unwrap();
         assert_eq!(catalog.manager.as_str(), "npm");
         fs::remove_dir_all(&root).ok();
     }

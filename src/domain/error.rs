@@ -20,9 +20,17 @@ pub enum AppError {
     },
     ScriptsNotObjectOfStrings,
     NoScripts,
+    InvalidWorkspace {
+        path: PathBuf,
+        detail: String,
+    },
     TerminalTooSmall,
     LaunchNotConfirmed {
         tab_id: Option<String>,
+    },
+    ScriptUnavailable {
+        package_root: PathBuf,
+        script_name: String,
     },
     Herdr {
         method: String,
@@ -100,11 +108,22 @@ impl fmt::Display for AppError {
                 write!(f, "package.json scripts must be an object of strings")
             }
             Self::NoScripts => write!(f, "This package.json has no scripts"),
+            Self::InvalidWorkspace { path, detail } => {
+                write!(f, "Invalid workspace {}: {detail}", path.display())
+            }
             Self::TerminalTooSmall => write!(f, "Terminal too small"),
             Self::LaunchNotConfirmed { tab_id } => match tab_id {
                 Some(id) => write!(f, "Script launch not confirmed ({id})"),
                 None => write!(f, "Script launch not confirmed"),
             },
+            Self::ScriptUnavailable {
+                package_root,
+                script_name,
+            } => write!(
+                f,
+                "Script {script_name} is unavailable in {}",
+                package_root.display()
+            ),
             Self::Herdr {
                 method,
                 code,

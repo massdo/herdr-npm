@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use unicode_width::UnicodeWidthChar;
@@ -5,7 +8,7 @@ use unicode_width::UnicodeWidthChar;
 use super::theme::{FOOTER_HELP, Theme};
 use crate::application::list_scripts::ListedScripts;
 use crate::domain::CWD_FALLBACK_NOTE;
-use crate::domain::catalog::{PackageCatalog, RunIntent, Script};
+use crate::domain::catalog::{PackageCatalog, ProjectCatalog, RunIntent, Script, WorkspaceCatalog};
 use crate::domain::error::AppError;
 use crate::domain::fuzzy::{FuzzyMatch, filter_names};
 
@@ -28,14 +31,6 @@ pub struct SearchState {
 }
 
 impl SearchState {
-    fn for_len(len: usize) -> Self {
-        Self {
-            mode: SearchMode::Off,
-            query: String::new(),
-            matches: unfiltered(len),
-        }
-    }
-
     pub fn is_editing(&self) -> bool {
         self.mode == SearchMode::Editing
     }
@@ -45,13 +40,28 @@ impl SearchState {
     }
 }
 
-fn unfiltered(len: usize) -> Vec<FuzzyMatch> {
-    (0..len)
-        .map(|index| FuzzyMatch {
-            index,
-            positions: Vec::new(),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CatalogRow {
+    Group(PathBuf),
+    Script(RunIntent),
+}
+
+impl CatalogRow {
+    fn scripts(catalog: &PackageCatalog) -> impl Iterator<Item = Self> + '_ {
+        catalog.scripts.iter().map(|script| {
+            Self::Script(RunIntent {
+                package_root: catalog.root.clone(),
+                script_name: script.name.clone(),
+            })
         })
-        .collect()
+    }
+
+    pub fn package_root(&self) -> &Path {
+        match self {
+            Self::Group(root) => root,
+            Self::Script(intent) => &intent.package_root,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +77,9 @@ pub struct SidebarApp {
     pub launch_error: Option<AppError>,
     pub search: SearchState,
     pub theme: Theme,
+    /// Stable identities in catalogue order; visible positions live in search.matches.
+    pub rows: Vec<CatalogRow>,
+    pub expanded: BTreeSet<PathBuf>,
 }
 
 impl SidebarApp {
@@ -75,14 +88,53 @@ impl SidebarApp {
     }
 
     pub fn with_theme(listed: ListedScripts, theme: Theme) -> Self {
-        let script_len = listed
-            .catalog
-            .as_ref()
-            .map(|catalog| catalog.scripts.len())
+        let mut rows = Vec::new();
+        let mut expanded = BTreeSet::new();
+        let mut preferred = None;
+        match &listed.catalog {
+            Ok(ProjectCatalog::Package(package)) => rows.extend(CatalogRow::scripts(package)),
+            Ok(ProjectCatalog::Workspace(workspace)) => {
+                expanded.insert(workspace.root.clone());
+                if let Some(active) = &workspace.active_package {
+                    expanded.insert(active.clone());
+                }
+                preferred = workspace
+                    .active_package
+                    .as_ref()
+                    .and_then(|root| workspace.packages.iter().find(|p| &p.root == root))
+                    .and_then(|p| p.catalog.as_ref().ok())
+                    .filter(|p| !p.scripts.is_empty())
+                    .or_else(|| {
+                        workspace
+                            .packages
+                            .iter()
+                            .find(|p| p.root == workspace.root)
+                            .and_then(|p| p.catalog.as_ref().ok())
+                    })
+                    .and_then(|p| {
+                        p.scripts.first().map(|s| RunIntent {
+                            package_root: p.root.clone(),
+                            script_name: s.name.clone(),
+                        })
+                    });
+                for package in &workspace.packages {
+                    rows.push(CatalogRow::Group(package.root.clone()));
+                    if let Ok(catalog) = &package.catalog {
+                        rows.extend(CatalogRow::scripts(catalog));
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        let selected = preferred
+            .and_then(|intent| {
+                rows.iter()
+                    .position(|row| row == &CatalogRow::Script(intent.clone()))
+            })
             .unwrap_or(0);
-        Self {
+        let mut app = Self {
             listed,
-            selected: 0,
+            selected,
             list_offset: 0,
             footer_offset: 0,
             run_intents: Vec::new(),
@@ -90,13 +142,79 @@ impl SidebarApp {
             process_running: true,
             workspace_id: String::new(),
             launch_error: None,
-            search: SearchState::for_len(script_len),
+            search: SearchState {
+                mode: SearchMode::Off,
+                query: String::new(),
+                matches: Vec::new(),
+            },
             theme,
-        }
+            rows,
+            expanded,
+        };
+        app.refilter(false);
+        app
     }
 
     pub fn catalog(&self) -> Option<&PackageCatalog> {
-        self.listed.catalog.as_ref().ok()
+        let project = self.listed.catalog.as_ref().ok()?;
+        self.rows
+            .get(self.selected)
+            .and_then(|row| project.package(row.package_root()))
+            .or_else(|| project.first_package())
+    }
+
+    pub fn workspace(&self) -> Option<&WorkspaceCatalog> {
+        match self.listed.catalog.as_ref().ok()? {
+            ProjectCatalog::Workspace(workspace) => Some(workspace),
+            ProjectCatalog::Package(_) => None,
+        }
+    }
+
+    pub fn row_script(&self, index: usize) -> Option<&Script> {
+        let CatalogRow::Script(intent) = self.rows.get(index)? else {
+            return None;
+        };
+        self.listed
+            .catalog
+            .as_ref()
+            .ok()?
+            .package(&intent.package_root)?
+            .scripts
+            .iter()
+            .find(|script| script.name == intent.script_name)
+    }
+
+    pub fn group_is_open(&self, root: &Path) -> bool {
+        !self.search.query.is_empty() || self.expanded.contains(root)
+    }
+
+    pub fn selected_detail(&self) -> String {
+        if let Some(script) = self.selected_script() {
+            return script.command.clone();
+        }
+        let Some(CatalogRow::Group(root)) = self.rows.get(self.selected) else {
+            return String::new();
+        };
+        let Some(package) = self
+            .workspace()
+            .and_then(|w| w.packages.iter().find(|p| &p.root == root))
+        else {
+            return String::new();
+        };
+        match &package.catalog {
+            Ok(catalog) => format!(
+                "{} [{}] {}{}",
+                catalog.display_name,
+                package.relative_path.display(),
+                catalog.manager.as_str(),
+                if catalog.scripts.is_empty() {
+                    " - No scripts"
+                } else {
+                    ""
+                }
+            ),
+            Err(error) => format!("{}: {error}", package.relative_path.display()),
+        }
     }
 
     pub fn error_message(&self) -> Option<String> {
@@ -120,7 +238,7 @@ impl SidebarApp {
     }
 
     pub fn search_available(&self) -> bool {
-        self.catalog().is_some() && !self.too_small()
+        self.listed.catalog.is_ok() && !self.too_small()
     }
 
     pub fn layout(&self) -> super::view::ColumnGeometry {
@@ -164,7 +282,7 @@ impl SidebarApp {
 
     pub fn selected_script(&self) -> Option<&Script> {
         self.visible_pos(self.selected)?;
-        self.scripts().get(self.selected)
+        self.row_script(self.selected)
     }
 
     pub fn list_height(&self) -> usize {
@@ -273,11 +391,47 @@ impl SidebarApp {
             return;
         }
         self.ensure_visible();
-        if let Some(script) = self.selected_script() {
-            self.run_intents.push(RunIntent {
-                script_name: script.name.clone(),
-            });
+        if self.selected_script().is_some()
+            && let CatalogRow::Script(intent) = &self.rows[self.selected]
+        {
+            self.run_intents.push(intent.clone());
         }
+    }
+
+    fn toggle_selected_group(&mut self) {
+        let Some(CatalogRow::Group(root)) = self.rows.get(self.selected) else {
+            return;
+        };
+        let open = !self.expanded.contains(root);
+        self.set_group_open(open);
+    }
+
+    fn set_group_open(&mut self, open: bool) {
+        // Filtering temporarily opens matching groups without changing the saved tree.
+        if !self.search.query.is_empty() {
+            return;
+        }
+        let Some(row) = self.rows.get(self.selected) else {
+            return;
+        };
+        if open && !matches!(row, CatalogRow::Group(_)) {
+            return;
+        }
+        let root = row.package_root().to_path_buf();
+        if open {
+            self.expanded.insert(root);
+        } else {
+            self.expanded.remove(&root);
+            if let Some(index) = self
+                .rows
+                .iter()
+                .position(|row| row == &CatalogRow::Group(root.clone()))
+            {
+                self.selected = index;
+            }
+        }
+        self.refilter(false);
+        self.footer_offset = 0;
     }
 
     pub fn scroll_footer(&mut self, delta: isize) {
@@ -306,8 +460,15 @@ impl SidebarApp {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.move_selection(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_selection(-1),
+            KeyCode::Right if self.workspace().is_some() => self.set_group_open(true),
+            KeyCode::Left if self.workspace().is_some() => self.set_group_open(false),
             KeyCode::Char('l') | KeyCode::Right => self.scroll_footer(1),
             KeyCode::Char('h') | KeyCode::Left => self.scroll_footer(-1),
+            KeyCode::Enter
+                if matches!(self.rows.get(self.selected), Some(CatalogRow::Group(_))) =>
+            {
+                self.toggle_selected_group()
+            }
             KeyCode::Enter => self.emit_run(),
             _ => {}
         }
@@ -349,11 +510,12 @@ impl SidebarApp {
 
     fn apply_search(&mut self) {
         self.search.mode = SearchMode::Applied;
-        if let Some(first) = self.search.matches.first() {
-            self.selected = first.index;
+        if let Some(first) = self.first_visible_script() {
+            self.selected = first;
             self.list_offset = 0;
             self.footer_offset = 0;
         }
+        self.ensure_visible();
     }
 
     fn clear_search(&mut self) {
@@ -363,29 +525,73 @@ impl SidebarApp {
     }
 
     fn refilter(&mut self, select_first: bool) {
-        let names: Vec<String> = self
-            .scripts()
-            .iter()
-            .map(|script| script.name.clone())
-            .collect();
-        self.search.matches = filter_names(names.iter().map(String::as_str), &self.search.query);
+        self.search.matches = self.filtered_rows();
         if select_first {
-            if let Some(first) = self.search.matches.first() {
-                self.selected = first.index;
+            if let Some(first) = self.first_visible_script() {
+                self.selected = first;
             }
             self.list_offset = 0;
             self.footer_offset = 0;
         } else if self.visible_pos(self.selected).is_none() {
-            self.selected = self
-                .search
-                .matches
-                .first()
-                .map(|item| item.index)
+            let group = self.rows.get(self.selected).and_then(|selected| {
+                self.rows.iter().position(
+                    |row| matches!(row, CatalogRow::Group(root) if root == selected.package_root()),
+                )
+            });
+            self.selected = group
+                .filter(|index| self.visible_pos(*index).is_some())
+                .or_else(|| self.search.matches.first().map(|item| item.index))
                 .unwrap_or(0);
             self.list_offset = 0;
         }
         self.clamp_list_offset();
         self.ensure_visible();
+    }
+
+    fn first_visible_script(&self) -> Option<usize> {
+        self.search
+            .matches
+            .iter()
+            .find(|item| matches!(self.rows[item.index], CatalogRow::Script(_)))
+            .map(|item| item.index)
+    }
+
+    fn filtered_rows(&self) -> Vec<FuzzyMatch> {
+        let mut visible = Vec::new();
+        let mut start = 0;
+        while start < self.rows.len() {
+            let group = match &self.rows[start] {
+                CatalogRow::Group(root) => Some(root),
+                _ => None,
+            };
+            let scripts_start = start + usize::from(group.is_some());
+            let end = (scripts_start..self.rows.len())
+                .find(|&i| matches!(self.rows[i], CatalogRow::Group(_)))
+                .unwrap_or(self.rows.len());
+            let names = (scripts_start..end).map(|i| match &self.rows[i] {
+                CatalogRow::Script(intent) => intent.script_name.as_str(),
+                _ => unreachable!(),
+            });
+            let matches = filter_names(names, &self.search.query);
+            if let Some(root) = group {
+                if self.search.query.is_empty() || !matches.is_empty() {
+                    visible.push(FuzzyMatch {
+                        index: start,
+                        positions: Vec::new(),
+                    });
+                }
+                if !self.group_is_open(root) {
+                    start = end;
+                    continue;
+                }
+            }
+            visible.extend(matches.into_iter().map(|item| FuzzyMatch {
+                index: scripts_start + item.index,
+                positions: item.positions,
+            }));
+            start = end;
+        }
+        visible
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
@@ -414,7 +620,9 @@ impl SidebarApp {
                     return;
                 };
                 self.select_index(index);
-                if geo.hits_icon_gutter(mouse.column, mouse.row) {
+                if matches!(self.rows[index], CatalogRow::Group(_)) {
+                    self.toggle_selected_group();
+                } else if geo.hits_icon_gutter(mouse.column, mouse.row) {
                     self.emit_run();
                 }
             }

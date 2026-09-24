@@ -13,6 +13,7 @@ FIXTURE="$TMP/work/app"
 BIN="$TMP/bin"
 HOLD="$TMP/hold.log"
 ARGV="$TMP/argv.json"
+MANAGER_LOG="$TMP/manager-launches.jsonl"
 SERVER_LOG="$TMP/herdr-server.log"
 CLIENT_LOG="$TMP/herdr-client.log"
 SERVER_PID_FILE="$TMP/server.pid"
@@ -23,6 +24,7 @@ export HERDR_NPM_E2E_CONFIG="$CONFIG"
 export HERDR_NPM_E2E_FIXTURE="$FIXTURE"
 export HERDR_NPM_E2E_HOLD="$HOLD"
 export HERDR_NPM_E2E_ARGV="$ARGV"
+export HERDR_NPM_E2E_MANAGER_LOG="$MANAGER_LOG"
 export HERDR_NPM_E2E_SERVER_LOG="$SERVER_LOG"
 export HERDR_NPM_E2E_SERVER_PID="$SERVER_PID_FILE"
 export HERDR_NPM_E2E_CLIENT_LOG="$CLIENT_LOG"
@@ -39,6 +41,11 @@ cleanup() {
   if [ -f "$SERVER_PID_FILE" ]; then
     kill "$(cat "$SERVER_PID_FILE")" >/dev/null 2>&1 || true
   fi
+  if [ -n "${HERDR_NPM_E2E_ARTIFACTS:-}" ]; then
+    mkdir -p "$HERDR_NPM_E2E_ARTIFACTS"
+    cp -R "$TMP/." "$HERDR_NPM_E2E_ARTIFACTS/"
+    echo "e2e_artifacts=$HERDR_NPM_E2E_ARTIFACTS"
+  fi
   rm -rf "$TMP"
   exit "$status"
 }
@@ -48,6 +55,7 @@ echo "== versions =="
 herdr --version
 rustc --version
 command -v npm >/dev/null
+command -v pnpm >/dev/null
 command -v python3 >/dev/null
 HERDR_VER=$(herdr --version | awk '{print $2}')
 if [ "$HERDR_VER" != "0.9.1" ]; then
@@ -71,11 +79,15 @@ cat > "$XDG_STATE_HOME/herdr/plugins/herdr-sidebar/state.json" <<'JSON'
 JSON
 
 REAL_NPM=$(command -v npm)
+REAL_PNPM=$(command -v pnpm)
 cat > "$BIN/herdr-e2e-shell" <<EOF
 #!/bin/sh
 export PATH="$BIN:\$PATH"
 export HERDR_NPM_E2E_ARGV="$ARGV"
 export HERDR_NPM_E2E_HOLD="$HOLD"
+# The monorepo fixture pins pnpm@10.10.0. Another installed pnpm would reinstall
+# that version through PATH, and the recorder would log a second pnpm call.
+export npm_config_manage_package_manager_versions=false
 exec /bin/sh "\$@"
 EOF
 chmod +x "$BIN/herdr-e2e-shell"
@@ -113,9 +125,13 @@ import json, os, sys
 path = os.environ.get("HERDR_NPM_E2E_ARGV") or r"$ARGV"
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(sys.argv, handle)
-real = os.environ.get("HERDR_NPM_E2E_REAL_NPM") or r"$REAL_NPM"
+manager = os.path.basename(sys.argv[0])
+with open(r"$MANAGER_LOG", "a", encoding="utf-8") as handle:
+    handle.write(json.dumps({"manager": manager, "argv": sys.argv[1:], "cwd": os.getcwd()}) + "\n")
+real = (os.environ.get("HERDR_NPM_E2E_REAL_NPM") or r"$REAL_NPM") if manager == "npm" else r"$REAL_PNPM"
 os.execv(real, [real, *sys.argv[1:]])
 PY
+cp "$BIN/npm" "$BIN/pnpm"
 cat > "$BIN/vite" <<PY
 #!/usr/bin/env python3
 import os, signal, sys, termios, tty
@@ -149,7 +165,7 @@ cat > "$BIN/tsc" <<'PY'
 #!/usr/bin/env python3
 print("TSC_OK")
 PY
-chmod +x "$BIN"/herdr-e2e-shell "$BIN"/npm "$BIN"/vite "$BIN"/tsc
+chmod +x "$BIN"/herdr-e2e-shell "$BIN"/npm "$BIN"/pnpm "$BIN"/vite "$BIN"/tsc
 export PATH="$BIN:$PATH"
 
 echo "== build plugin =="
@@ -221,6 +237,7 @@ echo "== PTY journey =="
 # HERDR_NPM_E2E_CASE=search limits it to opening search, typing, and launching a hit.
 # HERDR_NPM_E2E_CASE=style checks the 32-column catalogue chrome (ASCII glyphs when forced).
 # HERDR_NPM_E2E_CASE=v1_1 runs the short V1.1 path: icon/name, wheel, search+launch, style.
+# HERDR_NPM_E2E_CASE=monorepo checks package groups and launches from root/member.
 if { [ "${HERDR_NPM_E2E_CASE:-}" = "style" ] || [ "${HERDR_NPM_E2E_CASE:-}" = "v1_1" ]; } && [ -z "${HERDR_NPM_ICONS:-}" ]; then
   export HERDR_NPM_ICONS=ascii
 fi

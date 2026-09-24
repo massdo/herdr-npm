@@ -20,6 +20,10 @@ sh scripts/install-smoke.sh <commit>
   arrêt du processus, sortie conservée, raccourci, fermeture et redémarrage.
   `HERDR_NPM_E2E_CASE=v1_1` enchaîne le parcours court V1.1 (icône/nom, molette, recherche, style)
   sans rejouer la recette V1 entière.
+  Le parcours complet inclut aussi une fixture monorepo de six packages depuis
+  sa racine et depuis `apps/mcp`, avec recherche, repli et témoins de lancement.
+  `HERDR_NPM_E2E_CASE=monorepo` isole ce parcours ;
+  `HERDR_NPM_E2E_ARTIFACTS=/chemin` conserve ses logs et sa configuration jetable.
 - Le smoke test installe le plugin depuis GitHub au commit demandé.
 
 Les tests offline nécessitent Rust 1.89, Python 3, npm et pnpm ; les E2E demandent
@@ -34,3 +38,6 @@ Le tag `@v1_1_icon` isole les scénarios de lancement par gouttière d'icône.
 Le tag `@v1_1_wheel` isole le défilement à la molette.
 Le tag `@search` isole la recherche floue.
 Le tag `@v1_1_style` isole les scénarios de glyphes, palette et séparateur.
+Le tag `@workspace` isole les scénarios monorepo. Les tests Rust
+`workspace_discovery`, `workspace_tui` et `run_argv` complètent les cas de globs,
+liens, erreurs locales, cellules rendues et managers réellement exécutés.

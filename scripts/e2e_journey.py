@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import pty
+import shlex
 import socket
 import struct
 import subprocess
@@ -282,6 +283,105 @@ def settled_layout(pane):
     return wait(settled, "pane geometry did not settle")
 
 
+def prove_monorepo(working):
+    root = Path(env("FIXTURE")).resolve()
+    members = ["apps/auth", "apps/cli", "apps/mcp", "packages/core", "packages/infrastructure"]
+    (root / "pnpm-workspace.yaml").write_text("packages: ['apps/*', 'packages/*']\nuseNodeVersion: 22.0.0\n")
+    (root / "package.json").write_text(json.dumps({
+        "name": "journal-fixture", "packageManager": "pnpm@10.10.0", "scripts": {"root": "echo ROOT_OK"},
+    }))
+    for member in members:
+        directory = root / member
+        directory.mkdir(parents=True, exist_ok=True)
+        scripts = {"dev": "echo witness >> witness.txt", "start": "echo START_OK"} if member.startswith("apps/") else {}
+        (directory / "package.json").write_text(json.dumps({"name": "same-name", "scripts": scripts}))
+
+    def records():
+        log = Path(env("MANAGER_LOG"))
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    baseline = len(records())
+
+    def open_workspace():
+        focus(working)
+        toggle()
+        pane = wait(sidebar, "workspace sidebar did not open")["pane_id"]
+        wait(lambda: "6 packages" in read(pane), "workspace catalogue did not render")
+        herdr("pane", "resize", "--pane", pane, "--direction", "right", "--amount", "0.45")
+        settled_layout(pane)
+        screen = read(pane)
+        for member in members:
+            assert f"[{member}]" in screen, (member, screen)
+        assert "[.]" in screen and screen.count("No scripts") == 2, screen
+        assert "pnpm" in screen, screen
+        return pane
+
+    def launch_selected(pane, member, action):
+        before = {tab["tab_id"] for tab in tabs()}
+        old_records = len(records())
+        action()
+        created = wait(lambda: [tab for tab in tabs() if tab["tab_id"] not in before], "workspace launch missing")
+        assert len(created) == 1, created
+        witness = root / member / "witness.txt"
+        wait(lambda: witness.exists(), f"{member} witness missing")
+        assert witness.read_text() == "witness\n", (member, witness.read_text())
+        wait(lambda: len(records()) > old_records, "manager record missing")
+        assert records()[old_records:] == [{"manager": "pnpm", "argv": ["run", "--", "dev"], "cwd": str(root / member)}]
+        assert any(p["pane_id"] == pane and p["focused"] for p in panes()), "workspace launch stole focus"
+        new_panes = [p for p in panes() if p["tab_id"] == created[0]["tab_id"]]
+        assert len(new_panes) == 1 and Path(new_panes[0]["cwd"]).resolve() == root / member, new_panes
+        origin = next(p for p in panes() if p["pane_id"] == pane)
+        assert new_panes[0]["workspace_id"] == origin["workspace_id"]
+        time.sleep(0.2)
+        assert len([tab for tab in tabs() if tab["tab_id"] not in before]) == 1
+        assert len(records()) == old_records + 1
+        herdr("tab", "close", created[0]["tab_id"])
+
+    npm = open_workspace()
+    screen = read(npm)
+    assert "- [.]" in screen and "+ [apps/mcp]" in screen, screen
+    keys(npm, "/")
+    herdr("pane", "send-text", npm, "dev")
+    wait(lambda: all(f"- [{member}]" in read(npm) for member in members[:3]), "closed packages were not searched")
+    before_apply = len(tabs())
+    keys(npm, "enter")
+    time.sleep(0.2)
+    assert len(tabs()) == before_apply and len(records()) == baseline
+    launch_selected(npm, "apps/auth", lambda: keys(npm, "enter"))
+
+    screen = read(npm)
+    group_line = next(i for i, line in enumerate(screen.splitlines()) if "[apps/cli]" in line)
+    # A click on the name selects; the following gutter click launches that exact package.
+    sgr_click(npm, 7, group_line + 2)
+    time.sleep(0.2)
+    assert len(records()) == baseline + 1
+    launch_selected(npm, "apps/cli", lambda: sgr_click(npm, 2, group_line + 2))
+    keys(npm, "esc")
+    wait(lambda: "+ [apps/cli]" in read(npm), "Esc did not restore the collapsed tree")
+    keys(npm, "q")
+    wait(lambda: sidebar() is None, "workspace sidebar did not close")
+
+    herdr("pane", "send-text", working, f"cd {shlex.quote(str(root / 'apps/mcp'))}")
+    keys(working, "enter")
+    wait(lambda: any(p["pane_id"] == working and p.get("foreground_cwd") and Path(p["foreground_cwd"]).resolve() == root / "apps/mcp" for p in panes()), "member cwd did not update")
+    npm = open_workspace()
+    assert "- [apps/mcp]" in read(npm), read(npm)
+    launch_selected(npm, "apps/mcp", lambda: keys(npm, "enter"))
+    keys(npm, "left")
+    wait(lambda: "+ [apps/mcp]" in read(npm), "Left did not collapse selected script's package")
+    keys(npm, "right")
+    wait(lambda: "- [apps/mcp]" in read(npm), "Right did not expand selected package")
+    assert len(records()) == baseline + 3
+    keys(npm, "q")
+    wait(lambda: sidebar() is None, "member sidebar did not close")
+    herdr("pane", "send-text", working, f"cd {shlex.quote(str(root))}")
+    keys(working, "enter")
+    wait(lambda: any(p["pane_id"] == working and p.get("foreground_cwd") and Path(p["foreground_cwd"]).resolve() == root for p in panes()), "root cwd did not restore")
+    (root / "pnpm-workspace.yaml").unlink()
+    write_fixture_scripts()
+    print("monorepo_root_member_six_groups_search_identity_cwd_manager_once_ok", flush=True)
+
+
 def main(client):
     xdg = Path(env("XDG")).resolve()
     assert env("SESSION").startswith("herdr-npm-e2e-")
@@ -313,6 +413,12 @@ def main(client):
     assert rects[npm]["x"] >= explorer_rect["x"] + explorer_rect["width"] - 1, rects
     assert rects[working]["x"] > rects[npm]["x"], rects
     print("explorer_docking_ok", flush=True)
+
+    if case_name() == "monorepo":
+        keys(npm, "q")
+        wait(lambda: sidebar() is None, "initial sidebar did not close")
+        prove_monorepo(working)
+        return
 
     if case_name() == "icon":
         prove_name_click_does_not_launch(npm)
@@ -383,6 +489,8 @@ def main(client):
     keys(npm, "q")
     wait(lambda: all(p["pane_id"] != npm for p in panes()), "q did not close sidebar")
     print("shortcut_and_q_ok", flush=True)
+
+    prove_monorepo(working)
 
     npm = open_sidebar(working)
     client.close()

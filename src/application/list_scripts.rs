@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
 use crate::application::ports::{LoadedCatalog, ProjectPort};
-use crate::domain::catalog::PackageCatalog;
+use crate::domain::catalog::ProjectCatalog;
 use crate::domain::error::AppError;
 use crate::domain::pane::OriginContext;
 
 #[derive(Debug, Clone)]
 pub struct ListedScripts {
-    pub catalog: Result<PackageCatalog, AppError>,
+    pub catalog: Result<ProjectCatalog, AppError>,
     pub used_start_cwd: bool,
     pub root: Option<PathBuf>,
 }

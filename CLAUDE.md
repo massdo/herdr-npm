@@ -30,6 +30,16 @@ Read at startup only. The TUI must not treat its own process cwd as the project:
 
 Visible label `npm`. Recognition is the session token, never the label. Tokens are lost on server restart.
 
+## Workspace catalogue
+
+- `FsProject` owns discovery and disk access. `ProjectCatalog` separates standalone packages from a workspace snapshot with per-member results. YAML is parsed by `serde_yaml_ng`; `globset` matches directory patterns with literal separators, and `walkdir` handles traversal and cycle detection. Exclusions are applied after inclusions; paths are canonicalized and bounded to the workspace.
+- Walk scopes prune by literal inclusion prefixes and safe depth bounds before canonicalization. Recursive patterns, classes (which can match separators), and escapes retain conservative depth bounds. Canonical member paths determine final ordering; the walk itself is unsorted to avoid eagerly reading pruned directories.
+- Manager signals are searched per directory, stopping at the workspace root. The original standalone `parse_package_json` still rejects missing/empty scripts; workspace members retain empty lists instead.
+- The first `.git` boundary stops workspace discovery only. When no package has been found yet, standalone lookup continues upward to the nearest `package.json` as in V1, without checking further workspace declarations.
+- `CatalogRow` holds a package path or a `RunIntent` (package path + script name). `SidebarApp.selected` indexes this frozen row catalogue, never the filtered viewport. `search.matches` maps visible rows back to it; `expanded` stores only the unfiltered tree state.
+- `flush_intents` resolves each intent against the frozen project before calling `run_script`. Display names and visible row positions never determine the launch directory or manager.
+- `tests/workspace_discovery.rs`, `tests/workspace_tui.rs`, `tests/run_argv.rs` and `workspace_scripts.feature` cover discovery, rendered cells, interaction and actual npm/pnpm witness execution. The E2E monorepo case drives the same behavior through an isolated Herdr PTY.
+
 ## Build and release
 
 - `[[build]]` runs `scripts/fetch-or-build.sh` (POSIX sh). It keeps the binary of release `v<version>` (version from `Cargo.toml` `[package]`) only if `SOURCE_COMMIT` equals `git rev-parse HEAD`, no tracked file is modified, and `SHA256SUMS` holds one well-formed entry for `herdr-npm-<triple>` that matches the download. Otherwise it prints the reason on stderr, sources `$HOME/.cargo/env` and execs `scripts/build.sh`.

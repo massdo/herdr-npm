@@ -7,6 +7,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use herdr_npm::domain::catalog::PackageManager;
 use herdr_npm::domain::run_command::run_invocation;
 
+#[allow(dead_code)]
+#[path = "support/fake_herdr.rs"]
+mod fake_herdr;
+mod workspace_fixture;
+
 fn temp_dir() -> PathBuf {
     static N: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
@@ -131,4 +136,119 @@ fn real_npm_sees_dashed_names_as_scripts_when_present() {
 #[test]
 fn real_pnpm_sees_dashed_names_as_scripts_when_present() {
     assert_real_manager("pnpm");
+}
+
+#[test]
+fn workspace_homonyms_run_once_in_their_own_packages_with_their_managers() {
+    use herdr_npm::adapters::fs_project::FsProject;
+    use herdr_npm::adapters::tui::{app::SidebarApp, flush_intents};
+    use herdr_npm::application::list_scripts::{list_scripts, origin_for_paths};
+    use herdr_npm::domain::catalog::RunIntent;
+
+    let f = workspace_fixture::Fixture::journal();
+    f.package("apps/auth", r#"{"name":"same-name","packageManager":"npm@10","scripts":{"dev":"echo witness >> witness.txt"}}"#);
+    assert_eq!(f.workspace("").packages.len(), 6);
+    let bin = f.path("bin");
+    fs::create_dir(&bin).unwrap();
+    for manager in ["npm", "pnpm"] {
+        let output = Command::new("sh")
+            .args(["-c", &format!("command -v {manager}")])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let real = String::from_utf8(output.stdout).unwrap().trim().to_string();
+        let body = format!(
+            r#"#!/usr/bin/env python3
+import json, os, sys
+with open("invocations.jsonl", "a") as handle:
+    handle.write(json.dumps({{"manager": {manager:?}, "argv": sys.argv[1:], "cwd": os.getcwd()}}) + "\n")
+real = {real}
+os.execv(real, [real, *sys.argv[1:]])
+"#,
+            real = serde_json::to_string(&real).unwrap()
+        );
+        fs::write(bin.join(manager), body).unwrap();
+        fs::set_permissions(bin.join(manager), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let listed = list_scripts(
+        &FsProject::capped(f.path("")),
+        &origin_for_paths(Some(f.path("")), None),
+    );
+    let mut app = SidebarApp::new(listed);
+    app.workspace_id = "captured-workspace".into();
+    for path in ["apps/auth", "apps/mcp"] {
+        app.run_intents.push(RunIntent {
+            package_root: f.path(path),
+            script_name: "dev".into(),
+        });
+    }
+    let herdr = fake_herdr::FakeHerdr::default();
+    herdr.set_shell_exec(bin, f.path("unused.json"));
+    flush_intents(&mut app, &herdr);
+    assert!(app.launch_error.is_none(), "{:?}", app.launch_error);
+    flush_intents(&mut app, &herdr);
+    let tabs = herdr.created_tabs();
+    assert_eq!(tabs.len(), 2);
+    for (index, (path, manager)) in [("apps/auth", "npm"), ("apps/mcp", "pnpm")]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(tabs[index].cwd, f.path(path));
+        assert_eq!(tabs[index].workspace_id, "captured-workspace");
+        assert!(!tabs[index].focus);
+        assert_eq!(tabs[index].label, format!("{manager} run -- dev"));
+        assert_eq!(
+            fs::read_to_string(f.path(&format!("{path}/witness.txt"))).unwrap(),
+            "witness\n"
+        );
+        let lines = fs::read_to_string(f.path(&format!("{path}/invocations.jsonl"))).unwrap();
+        assert_eq!(lines.lines().count(), 1);
+        let record: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
+        assert_eq!(record["manager"], *manager);
+        assert_eq!(record["argv"], serde_json::json!(["run", "--", "dev"]));
+        assert_eq!(record["cwd"], f.path(path).to_str().unwrap());
+    }
+}
+
+#[test]
+fn unavailable_workspace_identity_cannot_launch_and_uncertainty_is_not_retried() {
+    use herdr_npm::application::run_script::run_intent;
+    use herdr_npm::domain::catalog::RunIntent;
+    use herdr_npm::domain::error::AppError;
+    let f = workspace_fixture::Fixture::journal();
+    let project = f.load("").catalog.unwrap();
+    let herdr = fake_herdr::FakeHerdr::default();
+    for (package, script) in [
+        ("unlisted", "dev"),
+        ("apps/mcp", "missing"),
+        ("packages/core", "dev"),
+    ] {
+        let intent = RunIntent {
+            package_root: f.path(package),
+            script_name: script.into(),
+        };
+        assert!(matches!(
+            run_intent(&herdr, &project, "w1", &intent),
+            Err(AppError::ScriptUnavailable { .. })
+        ));
+    }
+    assert!(herdr.calls().is_empty());
+    herdr.set_send_timeout();
+    let intent = RunIntent {
+        package_root: f.path("apps/mcp"),
+        script_name: "dev".into(),
+    };
+    assert!(matches!(
+        run_intent(&herdr, &project, "w1", &intent),
+        Err(AppError::LaunchNotConfirmed { .. })
+    ));
+    assert_eq!(herdr.created_tabs().len(), 1);
+    assert_eq!(
+        herdr
+            .calls()
+            .iter()
+            .filter(|call| call.method == "pane.send_input")
+            .count(),
+        1
+    );
 }

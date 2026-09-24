@@ -1,8 +1,29 @@
 use crate::application::ports::{CreateTab, HerdrPort};
-use crate::domain::catalog::PackageCatalog;
+use crate::domain::catalog::{PackageCatalog, ProjectCatalog, RunIntent};
 use crate::domain::error::AppError;
 use crate::domain::pane::CreatedTab;
 use crate::domain::run_command::run_invocation;
+
+pub fn run_intent<H: HerdrPort>(
+    herdr: &H,
+    project: &ProjectCatalog,
+    workspace_id: &str,
+    intent: &RunIntent,
+) -> Result<CreatedTab, AppError> {
+    let catalog = project
+        .package(&intent.package_root)
+        .filter(|package| {
+            package
+                .scripts
+                .iter()
+                .any(|script| script.name == intent.script_name)
+        })
+        .ok_or_else(|| AppError::ScriptUnavailable {
+            package_root: intent.package_root.clone(),
+            script_name: intent.script_name.clone(),
+        })?;
+    run_script(herdr, catalog, workspace_id, &intent.script_name)
+}
 
 /// Create a background tab in the frozen catalogue workspace and send the
 /// invocation once to its root pane. Never retries.

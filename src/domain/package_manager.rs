@@ -11,12 +11,19 @@ pub struct Lockfiles {
 
 /// Detect npm vs pnpm. yarn/bun declarations resolve to npm with no warning.
 pub fn detect_package_manager(field: Option<&Value>, lockfiles: Lockfiles) -> PackageManager {
+    package_manager_signal(field, lockfiles).unwrap_or(PackageManager::Npm)
+}
+
+pub fn package_manager_signal(
+    field: Option<&Value>,
+    lockfiles: Lockfiles,
+) -> Option<PackageManager> {
     match field {
         Some(Value::String(raw)) => {
             let name = raw.split('@').next().unwrap_or("").trim();
             match name {
-                "pnpm" => return PackageManager::Pnpm,
-                "npm" | "yarn" | "bun" => return PackageManager::Npm,
+                "pnpm" => return Some(PackageManager::Pnpm),
+                "npm" | "yarn" | "bun" => return Some(PackageManager::Npm),
                 "" => {}
                 _ => {}
             }
@@ -25,9 +32,11 @@ pub fn detect_package_manager(field: Option<&Value>, lockfiles: Lockfiles) -> Pa
         None => {}
     }
     if lockfiles.pnpm {
-        PackageManager::Pnpm
+        Some(PackageManager::Pnpm)
+    } else if lockfiles.npm {
+        Some(PackageManager::Npm)
     } else {
-        PackageManager::Npm
+        None
     }
 }
 
@@ -37,6 +46,25 @@ pub fn parse_package_json(
     lockfiles: Lockfiles,
 ) -> Result<crate::domain::catalog::PackageCatalog, AppError> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| AppError::InvalidPackageJson)?;
+    let manager = detect_package_manager(value.get("packageManager"), lockfiles);
+    parse_package(root, value, manager, false)
+}
+
+pub fn parse_workspace_package(
+    root: &Path,
+    bytes: &[u8],
+    manager: PackageManager,
+) -> Result<crate::domain::catalog::PackageCatalog, AppError> {
+    let value = serde_json::from_slice(bytes).map_err(|_| AppError::InvalidPackageJson)?;
+    parse_package(root, value, manager, true)
+}
+
+fn parse_package(
+    root: &Path,
+    value: Value,
+    manager: PackageManager,
+    allow_empty: bool,
+) -> Result<crate::domain::catalog::PackageCatalog, AppError> {
     let Value::Object(map) = value else {
         return Err(AppError::InvalidPackageJson);
     };
@@ -48,9 +76,10 @@ pub fn parse_package_json(
             .unwrap_or_else(|| "package".into()),
     };
     let scripts = match map.get("scripts") {
+        None if allow_empty => Vec::new(),
         None => return Err(AppError::NoScripts),
         Some(Value::Object(scripts)) => {
-            if scripts.is_empty() {
+            if scripts.is_empty() && !allow_empty {
                 return Err(AppError::NoScripts);
             }
             let mut listed = Vec::new();
@@ -70,7 +99,7 @@ pub fn parse_package_json(
     Ok(crate::domain::catalog::PackageCatalog {
         root: PathBuf::from(root),
         display_name,
-        manager: detect_package_manager(map.get("packageManager"), lockfiles),
+        manager,
         scripts,
     })
 }

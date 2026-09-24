@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
-use super::app::SidebarApp;
+use super::app::{CatalogRow, SidebarApp};
 use super::theme::{FOOTER_HELP, Theme, pad_icon};
 
 use crate::domain::error::AppError;
@@ -187,13 +187,22 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
         return;
     }
 
-    let catalog = app.catalog().expect("ok catalog");
     let geo = app.layout();
     let theme = app.theme;
     let pal = theme.palette;
     let width = inner.width as usize;
     let mag_width = geo.magnifier.width as usize;
-    let mut lines: Vec<Line> = vec![header_line(catalog, width, mag_width, theme)];
+    let header = match app.workspace() {
+        Some(workspace) => title_line(
+            "Workspace",
+            &format!("  {} packages", workspace.packages.len()),
+            width,
+            mag_width,
+            theme,
+        ),
+        None => header_line(app.catalog().expect("ok package"), width, mag_width, theme),
+    };
+    let mut lines: Vec<Line> = vec![header];
     if geo.separator.height > 0 {
         lines.push(Line::styled(
             "─".repeat(width),
@@ -217,20 +226,36 @@ pub fn render(frame: &mut Frame, app: &mut SidebarApp) {
     } else {
         let visible = app.search.matches.iter().skip(app.list_offset).take(list_h);
         for item in visible {
-            let script = &catalog.scripts[item.index];
             let selected = item.index == app.selected;
-            lines.push(format_row(script, width, &item.positions, theme, selected));
+            match &app.rows[item.index] {
+                CatalogRow::Group(root) => {
+                    let package = app
+                        .workspace()
+                        .expect("workspace group")
+                        .packages
+                        .iter()
+                        .find(|p| &p.root == root)
+                        .expect("frozen package");
+                    lines.push(format_group(
+                        package,
+                        app.group_is_open(root),
+                        width,
+                        theme,
+                        selected,
+                    ));
+                }
+                CatalogRow::Script(_) => {
+                    let script = app.row_script(item.index).expect("frozen script");
+                    lines.push(format_row(script, width, &item.positions, theme, selected));
+                }
+            }
         }
         while lines.len() < chrome + list_h {
             lines.push(Line::from(""));
         }
     }
 
-    let command = app
-        .selected_script()
-        .map(|script| script.command.as_str())
-        .unwrap_or("");
-    let footer = scroll_text(command, app.footer_offset, width);
+    let footer = scroll_text(&app.selected_detail(), app.footer_offset, width);
     lines.push(Line::styled(footer, Style::default().fg(pal.muted)));
     lines.extend(
         app.status_lines()
@@ -265,16 +290,27 @@ fn header_line(
     mag_width: usize,
     theme: Theme,
 ) -> Line<'static> {
+    title_line(
+        &catalog.display_name,
+        &format!("  {} {}", catalog.manager.as_str(), catalog.scripts.len()),
+        width,
+        mag_width,
+        theme,
+    )
+}
+
+fn title_line(
+    name: &str,
+    suffix: &str,
+    width: usize,
+    mag_width: usize,
+    theme: Theme,
+) -> Line<'static> {
     let pal = theme.palette;
     let pkg = pad_icon(theme.icons.package, ICON_GUTTER_COLS as usize);
-    let manager = catalog.manager.as_str();
-    let count = catalog.scripts.len().to_string();
-    let suffix = ellipsize(
-        &format!("  {manager} {count}"),
-        width.saturating_sub(pkg.width() + mag_width),
-    );
+    let suffix = ellipsize(suffix, width.saturating_sub(pkg.width() + mag_width));
     let name_budget = width.saturating_sub(pkg.width() + suffix.width() + mag_width);
-    let name = ellipsize(&catalog.display_name, name_budget);
+    let name = ellipsize(name, name_budget);
     let mut spans = vec![
         Span::styled(pkg, Style::default().fg(pal.accent)),
         Span::styled(
@@ -294,6 +330,52 @@ fn header_line(
         ));
     }
     Line::from(spans)
+}
+
+fn format_group(
+    package: &crate::domain::catalog::WorkspacePackage,
+    open: bool,
+    width: usize,
+    theme: Theme,
+    selected: bool,
+) -> Line<'static> {
+    let icon = if open { "- " } else { "+ " };
+    let (name, suffix) = match &package.catalog {
+        Ok(catalog) => (
+            catalog.display_name.clone(),
+            format!(
+                " {}{}",
+                catalog.manager.as_str(),
+                if catalog.scripts.is_empty() {
+                    " No scripts"
+                } else {
+                    ""
+                }
+            ),
+        ),
+        Err(error) => (String::new(), format!(" ! {error}")),
+    };
+    let path = format!("[{}]", package.relative_path.display());
+    let label = if name.is_empty() {
+        path
+    } else {
+        format!("{path} {name}")
+    };
+    let suffix = ellipsize(&suffix, width.saturating_sub(10));
+    let label = ellipsize(&label, width.saturating_sub(2 + suffix.width()));
+    let text = format!("{icon}{label}{suffix}");
+    let style = if selected {
+        Style::default()
+            .fg(theme.palette.selection_fg)
+            .bg(theme.palette.selection_bg)
+    } else {
+        Style::default().fg(theme.palette.text)
+    };
+    let padding = " ".repeat(width.saturating_sub(text.width()));
+    Line::styled(
+        format!("{text}{padding}"),
+        style.add_modifier(Modifier::BOLD),
+    )
 }
 
 fn status_line(text: &str, theme: Theme, width: usize) -> Line<'static> {
@@ -461,18 +543,20 @@ mod tests {
 
     fn listed(scripts: &[(&str, &str)]) -> ListedScripts {
         ListedScripts {
-            catalog: Ok(PackageCatalog {
-                root: std::path::PathBuf::from("/work/app"),
-                display_name: "app".into(),
-                manager: PackageManager::Npm,
-                scripts: scripts
-                    .iter()
-                    .map(|(name, command)| Script {
-                        name: (*name).into(),
-                        command: (*command).into(),
-                    })
-                    .collect(),
-            }),
+            catalog: Ok(crate::domain::catalog::ProjectCatalog::Package(
+                PackageCatalog {
+                    root: std::path::PathBuf::from("/work/app"),
+                    display_name: "app".into(),
+                    manager: PackageManager::Npm,
+                    scripts: scripts
+                        .iter()
+                        .map(|(name, command)| Script {
+                            name: (*name).into(),
+                            command: (*command).into(),
+                        })
+                        .collect(),
+                },
+            )),
             used_start_cwd: false,
             root: Some(std::path::PathBuf::from("/work/app")),
         }
@@ -503,7 +587,8 @@ mod tests {
     #[test]
     fn narrow_header_keeps_the_search_icon_inside_its_hit_target() {
         for count in [40, 400] {
-            let mut catalog = listed(&[("dev", "vite")]).catalog.unwrap();
+            let project = listed(&[("dev", "vite")]).catalog.unwrap();
+            let mut catalog = project.first_package().unwrap().clone();
             catalog.manager = PackageManager::Pnpm;
             catalog.scripts = vec![catalog.scripts[0].clone(); count];
             let mut terminal = Terminal::new(TestBackend::new(12, 1)).unwrap();
