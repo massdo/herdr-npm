@@ -20,7 +20,7 @@ use crate::adapters::herdr_socket::HerdrSocket;
 use crate::application::close_own_pane::close_own_pane;
 use crate::application::list_scripts::{list_scripts, origin_for_paths};
 use crate::application::ports::HerdrPort;
-use crate::application::run_script::run_script;
+use crate::application::run_script::run_intent;
 use crate::domain::error::AppError;
 
 use self::app::SidebarApp;
@@ -73,13 +73,13 @@ fn event_loop<H: HerdrPort>(
 
 pub fn flush_intents<H: HerdrPort>(app: &mut SidebarApp, herdr: &H) {
     let intents = std::mem::take(&mut app.run_intents);
-    let Some(catalog) = app.catalog().cloned() else {
+    let Ok(project) = &app.listed.catalog else {
         app.run_intents = intents;
         return;
     };
     let workspace = app.workspace_id.clone();
     for intent in intents {
-        match run_script(herdr, &catalog, &workspace, &intent.script_name) {
+        match run_intent(herdr, project, &workspace, &intent) {
             Ok(_) => app.launch_error = None,
             Err(error) => app.launch_error = Some(error),
         }

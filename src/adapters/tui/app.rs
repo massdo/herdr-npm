@@ -277,6 +277,7 @@ impl SidebarApp {
         self.ensure_visible();
         if let Some(script) = self.selected_script() {
             self.run_intents.push(RunIntent {
+                package_root: self.catalog().expect("selected package").root.clone(),
                 script_name: script.name.clone(),
             });
         }

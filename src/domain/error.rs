@@ -28,6 +28,10 @@ pub enum AppError {
     LaunchNotConfirmed {
         tab_id: Option<String>,
     },
+    ScriptUnavailable {
+        package_root: PathBuf,
+        script_name: String,
+    },
     Herdr {
         method: String,
         code: String,
@@ -112,6 +116,14 @@ impl fmt::Display for AppError {
                 Some(id) => write!(f, "Script launch not confirmed ({id})"),
                 None => write!(f, "Script launch not confirmed"),
             },
+            Self::ScriptUnavailable {
+                package_root,
+                script_name,
+            } => write!(
+                f,
+                "Script {script_name} is unavailable in {}",
+                package_root.display()
+            ),
             Self::Herdr {
                 method,
                 code,

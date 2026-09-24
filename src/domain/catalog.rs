@@ -32,8 +32,9 @@ pub struct PackageCatalog {
     pub scripts: Vec<Script>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RunIntent {
+    pub package_root: PathBuf,
     pub script_name: String,
 }
 
