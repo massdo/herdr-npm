@@ -85,6 +85,9 @@ cat > "$BIN/herdr-e2e-shell" <<EOF
 export PATH="$BIN:\$PATH"
 export HERDR_NPM_E2E_ARGV="$ARGV"
 export HERDR_NPM_E2E_HOLD="$HOLD"
+# The monorepo fixture pins pnpm@10.10.0. Another installed pnpm would reinstall
+# that version through PATH, and the recorder would log a second pnpm call.
+export npm_config_manage_package_manager_versions=false
 exec /bin/sh "\$@"
 EOF
 chmod +x "$BIN/herdr-e2e-shell"
