@@ -1,6 +1,6 @@
 # herdr-npm
 
-Column of npm/pnpm scripts for the current package, as a Herdr plugin.
+Column of npm/pnpm scripts for the current package or declared workspace, as a Herdr plugin.
 
 ## Prerequisites
 
@@ -106,6 +106,50 @@ Enter or a left mouse down on a row's play icon starts `npm run -- <script>` or 
 
 `HERDR_NPM_ICONS=ascii` or `nerd` forces the glyph set. By default, the plugin checks for an installed Nerd Font; it cannot determine which font the terminal uses.
 
+## Workspaces / monorepos
+
+Open the column from the workspace root, an intermediate directory or a declared
+member. It discovers `pnpm-workspace.yaml` or `package.json` `workspaces` (an array
+or an object with `packages`). The nearest enclosing workspace wins, stopping at
+the nearest Git root. A nested package that is not declared remains a standalone
+package. When both declarations exist at one root, the YAML file takes precedence.
+
+Patterns support `*`, `**`, `?`, character classes and `{a,b}` alternatives.
+`!` exclusions apply to all inclusions. Only declared directories containing a
+`package.json` appear; `node_modules`, `.git`, external symlinks and cycles are
+ignored, and internal aliases are deduplicated. The root package comes first,
+then members in relative-path order. YAML workspaces can omit a root manifest.
+
+Each group shows its relative path, package name and manager. The root starts
+expanded; opening from a member also expands that member and selects its first
+script. Packages without scripts show `No scripts`. A broken member shows a local
+diagnostic while the other groups remain usable. A broken workspace declaration
+shows its path and stops discovery. Long group details are available in the footer.
+
+| Action | Workspace behavior |
+|---|---|
+| `j`/`k`, Up/Down | Move through visible groups and scripts without wrapping |
+| Enter or click on a group | Expand or collapse; never launch |
+| Right / Left | Expand a group / collapse the current group, selecting its header |
+| `h`/`l` | Scroll the command or group details in the footer |
+| Enter or play icon on a script | Launch that script in its package directory |
+| Click a script name or command | Select only |
+
+Search covers script names across all valid packages, including collapsed groups.
+Results are grouped by package path, so identical package or script names stay
+distinct. A nonempty filter temporarily expands matching groups; Esc clears it
+and restores the saved tree. Enter applies the search; a second Enter launches.
+Outside a workspace, Left/Right still scroll the command like `h`/`l`.
+
+Each package inherits the nearest manager signal up to the workspace root:
+at each directory, a supported `packageManager` declaration wins, followed by
+`pnpm-lock.yaml`, then `package-lock.json`. A local signal wins over a parent;
+no signal means npm. Yarn/bun declarations keep the existing npm fallback.
+Standalone packages still use only their own manifest and lockfiles.
+Packages, scripts, directories and managers stay frozen until the column closes.
+Each action opens exactly one background tab in the captured Herdr workspace;
+there is no recursive execution or automatic retry.
+
 ## Errors
 
 | Message | Meaning |
@@ -115,6 +159,7 @@ Enter or a left mouse down on a row's play icon starts `npm run -- <script>` or 
 | `package.json is not valid JSON` | Parse error |
 | `Cannot read package.json` | Unreadable file |
 | `This package.json has no scripts` | Missing or empty `scripts` |
+| `Invalid workspace <path>: ...` | Invalid or unreadable workspace declaration |
 | `package.json scripts must be an object of strings` | Bad `scripts` shape |
 | `Terminal too small` | Resize the pane |
 | `Script launch not confirmed` | Tab create/send did not ack; inspect the layout, no automatic retry |
@@ -136,3 +181,9 @@ for the reporting policy.
 sh scripts/check.sh all   # Rust + Cucumber + fetch-or-build, offline
 sh scripts/e2e.sh         # isolated Herdr + PTY, macOS or Linux
 ```
+
+The full E2E journey includes a disposable six-package pnpm workspace, opened
+from its root and from `apps/mcp`. `HERDR_NPM_E2E_CASE=monorepo sh scripts/e2e.sh`
+runs that journey alone. It uses harmless witness scripts, never a real project's
+operational scripts. Set `HERDR_NPM_E2E_ARTIFACTS` to a directory to retain the
+isolated configuration, launch records and logs.
