@@ -1,7 +1,8 @@
 # herdr-npm — NPM Scripts column for Herdr.
 # Copied in spirit from herdr-sidebar 0.13.0 (MIT): one binary, TUI pane plus
 # a --toggle action. Geometry is documented in README.md; this manifest only
-# declares the action and the managed pane.
+# declares the build, the action and the managed pane. The build installs the
+# verified release binary of this exact commit, or compiles from source.
 
 id = "herdr-npm"
 name = "herdr-npm"
@@ -11,7 +12,7 @@ min_herdr_version = "0.9.1"
 platforms = ["linux", "macos"]
 
 [[build]]
-command = ["/bin/sh", "scripts/build.sh"]
+command = ["/bin/sh", "scripts/fetch-or-build.sh"]
 
 [[panes]]
 id = "sidebar"

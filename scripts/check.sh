@@ -31,6 +31,7 @@ case "$mode" in
     cargo clippy --manifest-path "$MANIFEST" --all-targets -- -D warnings
     echo "== Rust + Cucumber =="
     cargo test --manifest-path "$MANIFEST"
+    sh "$ROOT/scripts/test-fetch-or-build.sh"
     ;;
   *)
     echo "usage: $0 <harness|toggle|catalog|run|all>" >&2
