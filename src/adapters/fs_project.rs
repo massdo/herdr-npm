@@ -47,13 +47,19 @@ impl ProjectPort for FsProject {
             }
         };
         let mut nearest_package = None;
+        let mut inside_git_boundary = true;
         let mut current = start.clone();
         loop {
             let candidate = current.join("package.json");
             if nearest_package.is_none() && exists(&candidate) {
                 nearest_package = Some(current.clone());
             }
-            match workspace_declaration(&current) {
+            let declaration = if inside_git_boundary {
+                workspace_declaration(&current)
+            } else {
+                Ok(None)
+            };
+            match declaration {
                 Ok(Some((path, patterns))) => {
                     let workspace =
                         discover_workspace(&current, &path, &patterns, nearest_package.as_deref());
@@ -91,7 +97,8 @@ impl ProjectPort for FsProject {
                     };
                 }
             }
-            if exists(&current.join(".git"))
+            inside_git_boundary &= !exists(&current.join(".git"));
+            if (!inside_git_boundary && nearest_package.is_some())
                 || self.cap.as_ref().is_some_and(|cap| {
                     current == *cap || current == cap.canonicalize().unwrap_or_else(|_| cap.clone())
                 })

@@ -113,6 +113,9 @@ member. It discovers `pnpm-workspace.yaml` or `package.json` `workspaces` (an ar
 or an object with `packages`). The nearest enclosing workspace wins, stopping at
 the nearest Git root. A nested package that is not declared remains a standalone
 package. When both declarations exist at one root, the YAML file takes precedence.
+The Git boundary applies only to workspace discovery. Standalone lookup preserves
+the original walk to the nearest `package.json`, even above a Git root, without
+adopting workspace declarations encountered beyond that boundary.
 
 Patterns support `*`, `**`, `?`, character classes and `{a,b}` alternatives.
 `!` exclusions apply to all inclusions. Only declared directories containing a

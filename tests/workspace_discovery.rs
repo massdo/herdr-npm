@@ -287,3 +287,21 @@ fn unreadable_non_member_subtree_does_not_block_the_workspace() {
         );
     }
 }
+
+#[test]
+fn standalone_lookup_crosses_git_boundary_without_adopting_parent_workspace() {
+    let f = Fixture::journal();
+    f.write("nested-repo/.git", "gitdir: elsewhere");
+    std::fs::create_dir_all(f.path("nested-repo/src")).unwrap();
+    let ProjectCatalog::Package(package) = f.load("nested-repo/src").catalog.unwrap() else {
+        panic!("a workspace outside the Git root was adopted")
+    };
+    assert_eq!(package.root, f.path(""));
+    assert_eq!(package.display_name, "journal-fixture");
+    assert_eq!(package.scripts[0].name, "root");
+    f.write("pnpm-workspace.yaml", "packages: [");
+    assert!(matches!(
+        f.load("nested-repo/src").catalog,
+        Ok(ProjectCatalog::Package(_))
+    ));
+}
