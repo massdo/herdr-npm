@@ -188,9 +188,76 @@ fn workspace_declaration(root: &Path) -> Result<Option<(PathBuf, Vec<String>)>, 
     Ok(Some((json, patterns)))
 }
 
-fn pattern_sets(path: &Path, patterns: &[String]) -> Result<(GlobSet, GlobSet), AppError> {
+struct WalkScope {
+    prefix: PathBuf,
+    max_depth: usize,
+}
+
+impl WalkScope {
+    fn new(pattern: &str) -> Self {
+        // Only literal components can constrain the walk. Globset remains the
+        // authority for matching, including alternatives and escaped literals.
+        let prefix = pattern
+            .split('/')
+            .take_while(|part| !part.contains(['*', '?', '[', ']', '{', '}', '\\']))
+            .collect();
+        // Character classes can match separators, even with literal_separator.
+        // Keep those and escaped/recursive patterns unbounded conservatively.
+        let max_depth = if pattern.contains("**") || pattern.contains(['[', '\\']) {
+            usize::MAX
+        } else {
+            pattern.split('/').count()
+        };
+        Self { prefix, max_depth }
+    }
+
+    fn allows(&self, relative: &Path, depth: usize) -> bool {
+        depth <= self.max_depth
+            && (relative.starts_with(&self.prefix) || self.prefix.starts_with(relative))
+    }
+}
+
+struct WorkspacePatterns {
+    includes: GlobSet,
+    excludes: GlobSet,
+    scopes: Vec<WalkScope>,
+}
+
+impl WorkspacePatterns {
+    fn directories<'a>(
+        &'a self,
+        root: &'a Path,
+    ) -> impl Iterator<Item = Result<walkdir::DirEntry, walkdir::Error>> + 'a {
+        WalkDir::new(root)
+            .follow_links(true)
+            .max_depth(self.scopes.iter().map(|s| s.max_depth).max().unwrap_or(0))
+            .into_iter()
+            .filter_entry(move |entry| {
+                if entry.depth() == 0 {
+                    return true;
+                }
+                let relative = entry.path().strip_prefix(root).expect("walk inside root");
+                if !entry.file_type().is_dir()
+                    || ignored(relative)
+                    || !self
+                        .scopes
+                        .iter()
+                        .any(|s| s.allows(relative, entry.depth()))
+                {
+                    return false;
+                }
+                entry
+                    .path()
+                    .canonicalize()
+                    .is_ok_and(|path| path.strip_prefix(root).is_ok_and(|p| !ignored(p)))
+            })
+    }
+}
+
+fn pattern_sets(path: &Path, patterns: &[String]) -> Result<WorkspacePatterns, AppError> {
     let mut includes = GlobSetBuilder::new();
     let mut excludes = GlobSetBuilder::new();
+    let mut scopes = Vec::new();
     for raw in patterns {
         let (negative, pattern) = raw
             .strip_prefix('!')
@@ -217,12 +284,14 @@ fn pattern_sets(path: &Path, patterns: &[String]) -> Result<(GlobSet, GlobSet), 
             excludes.add(glob);
         } else {
             includes.add(glob);
+            scopes.push(WalkScope::new(pattern));
         }
     }
-    Ok((
-        includes.build().map_err(|e| invalid_workspace(path, e))?,
-        excludes.build().map_err(|e| invalid_workspace(path, e))?,
-    ))
+    Ok(WorkspacePatterns {
+        includes: includes.build().map_err(|e| invalid_workspace(path, e))?,
+        excludes: excludes.build().map_err(|e| invalid_workspace(path, e))?,
+        scopes,
+    })
 }
 
 fn ignored(path: &Path) -> bool {
@@ -236,28 +305,14 @@ fn discover_workspace(
     patterns: &[String],
     active: Option<&Path>,
 ) -> Result<WorkspaceCatalog, AppError> {
-    let (includes, excludes) = pattern_sets(declaration, patterns)?;
+    let patterns = pattern_sets(declaration, patterns)?;
     let root = root
         .canonicalize()
         .map_err(|e| invalid_workspace(declaration, e))?;
     let mut members = BTreeSet::new();
-    let walker = WalkDir::new(&root)
-        .follow_links(true)
-        .sort_by_file_name()
-        .into_iter()
-        .filter_entry(|entry| {
-            if entry.depth() == 0 {
-                return true;
-            }
-            if ignored(entry.path().strip_prefix(&root).unwrap_or(entry.path())) {
-                return false;
-            }
-            entry
-                .path()
-                .canonicalize()
-                .is_ok_and(|path| path.strip_prefix(&root).is_ok_and(|p| !ignored(p)))
-        });
-    for entry in walker {
+    // Members are sorted by their canonical path below. Sorting walkdir itself
+    // would eagerly read even the directories filter_entry is about to prune.
+    for entry in patterns.directories(&root) {
         let entry = match entry {
             Ok(entry) => entry,
             // Inaccessible subtrees and broken links must not hide other packages.
@@ -268,8 +323,8 @@ fn discover_workspace(
             continue;
         }
         let relative = entry.path().strip_prefix(&root).expect("walk inside root");
-        if includes.is_match(relative)
-            && !excludes.is_match(relative)
+        if patterns.includes.is_match(relative)
+            && !patterns.excludes.is_match(relative)
             && exists(&entry.path().join("package.json"))
         {
             let canonical = entry
@@ -277,7 +332,10 @@ fn discover_workspace(
                 .canonicalize()
                 .map_err(|e| invalid_workspace(declaration, e))?;
             // Exclusions also apply when an included alias points to an excluded member.
-            if !excludes.is_match(canonical.strip_prefix(&root).expect("filtered root")) {
+            if !patterns
+                .excludes
+                .is_match(canonical.strip_prefix(&root).expect("filtered root"))
+            {
                 members.insert(canonical);
             }
         }

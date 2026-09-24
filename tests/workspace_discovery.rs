@@ -268,6 +268,11 @@ fn dangling_links_do_not_invalidate_the_workspace() {
 fn unreadable_non_member_subtree_does_not_block_the_workspace() {
     use std::os::unix::fs::PermissionsExt;
     let f = Fixture::journal();
+    // Exercise an actual traversal error even when shallow globs are pruned.
+    f.write(
+        "pnpm-workspace.yaml",
+        "packages: ['apps/*', 'packages/*', 'apps/**/member', 'cache/**/member']",
+    );
     for relative in ["apps/auth/src/secret", "cache"] {
         let directory = f.path(relative);
         std::fs::create_dir_all(&directory).unwrap();
@@ -304,4 +309,83 @@ fn standalone_lookup_crosses_git_boundary_without_adopting_parent_workspace() {
         f.load("nested-repo/src").catalog,
         Ok(ProjectCatalog::Package(_))
     ));
+}
+
+#[test]
+fn pruned_discovery_preserves_globset_matches() {
+    use globset::GlobBuilder;
+
+    let candidates = [
+        "apps/deep/two",
+        "apps/one",
+        "classes/a/c",
+        "classes/axc",
+        "escaped/*/pkg1",
+        "libs/deep/group/pkg1",
+        "libs/flat/pkg2",
+        "literal/only",
+        "literal/only/child",
+        "target/build/leaf",
+    ];
+    for patterns in [
+        vec!["apps/*", "literal/only"],
+        vec!["apps/*", "libs/**"],
+        vec!["apps/**"],
+        vec!["libs/{flat,deep/group}/pkg?"],
+        vec!["classes/a[!b]c"],
+        vec![r"escaped/\*/pkg?"],
+        vec!["**/leaf"],
+        vec![],
+    ] {
+        let f = Fixture::new();
+        f.write(
+            "package.json",
+            &serde_json::json!({"workspaces": patterns}).to_string(),
+        );
+        for path in candidates {
+            f.package(path, "{}");
+        }
+        let matchers: Vec<_> = patterns
+            .iter()
+            .map(|pattern| {
+                GlobBuilder::new(pattern)
+                    .literal_separator(true)
+                    .build()
+                    .unwrap()
+                    .compile_matcher()
+            })
+            .collect();
+        let expected: Vec<_> = std::iter::once(".")
+            .chain(
+                candidates
+                    .into_iter()
+                    .filter(|path| matchers.iter().any(|m| m.is_match(path))),
+            )
+            .collect();
+        let w = f.workspace("");
+        let actual: Vec<_> = w
+            .packages
+            .iter()
+            .map(|p| p.relative_path.to_str().unwrap())
+            .collect();
+        assert_eq!(actual, expected, "{patterns:?}");
+    }
+}
+
+#[test]
+fn included_alias_can_reach_a_pruned_directory_with_canonical_exclusions() {
+    let f = Fixture::new();
+    f.write("pnpm-workspace.yaml", "packages: ['apps/*']");
+    f.package("", "{}");
+    f.package("unlisted/package", "{}");
+    std::fs::create_dir(f.path("apps")).unwrap();
+    std::os::unix::fs::symlink(f.path("unlisted/package"), f.path("apps/alias")).unwrap();
+    let w = f.workspace("");
+    assert_eq!(w.packages.len(), 2);
+    assert_eq!(w.packages[1].root, f.path("unlisted/package"));
+    f.write(
+        "pnpm-workspace.yaml",
+        "packages: ['apps/*', '!unlisted/package']",
+    );
+    assert_eq!(f.workspace("").packages.len(), 1);
 }

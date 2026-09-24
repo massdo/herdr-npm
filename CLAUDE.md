@@ -33,6 +33,7 @@ Visible label `npm`. Recognition is the session token, never the label. Tokens a
 ## Workspace catalogue
 
 - `FsProject` owns discovery and disk access. `ProjectCatalog` separates standalone packages from a workspace snapshot with per-member results. YAML is parsed by `serde_yaml_ng`; `globset` matches directory patterns with literal separators, and `walkdir` handles traversal and cycle detection. Exclusions are applied after inclusions; paths are canonicalized and bounded to the workspace.
+- Walk scopes prune by literal inclusion prefixes and safe depth bounds before canonicalization. Recursive patterns, classes (which can match separators), and escapes retain conservative depth bounds. Canonical member paths determine final ordering; the walk itself is unsorted to avoid eagerly reading pruned directories.
 - Manager signals are searched per directory, stopping at the workspace root. The original standalone `parse_package_json` still rejects missing/empty scripts; workspace members retain empty lists instead.
 - The first `.git` boundary stops workspace discovery only. When no package has been found yet, standalone lookup continues upward to the nearest `package.json` as in V1, without checking further workspace declarations.
 - `CatalogRow` holds a package path or a `RunIntent` (package path + script name). `SidebarApp.selected` indexes this frozen row catalogue, never the filtered viewport. `search.matches` maps visible rows back to it; `expanded` stores only the unfiltered tree state.

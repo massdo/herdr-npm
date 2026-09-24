@@ -122,6 +122,9 @@ Patterns support `*`, `**`, `?`, character classes and `{a,b}` alternatives.
 `package.json` appear; `node_modules`, `.git`, external symlinks and cycles are
 ignored, and internal aliases are deduplicated. The root package comes first,
 then members in relative-path order. YAML workspaces can omit a root manifest.
+Discovery prunes directories outside literal inclusion prefixes and bounds the
+depth of non-recursive patterns when safe. Recursive globs and character classes
+can require broader traversal.
 
 Each group shows its relative path, package name and manager. The root starts
 expanded; opening from a member also expands that member and selects its first
