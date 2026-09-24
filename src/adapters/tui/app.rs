@@ -78,6 +78,8 @@ impl SidebarApp {
         let script_len = listed
             .catalog
             .as_ref()
+            .ok()
+            .and_then(|catalog| catalog.first_package())
             .map(|catalog| catalog.scripts.len())
             .unwrap_or(0);
         Self {
@@ -96,7 +98,7 @@ impl SidebarApp {
     }
 
     pub fn catalog(&self) -> Option<&PackageCatalog> {
-        self.listed.catalog.as_ref().ok()
+        self.listed.catalog.as_ref().ok()?.first_package()
     }
 
     pub fn error_message(&self) -> Option<String> {

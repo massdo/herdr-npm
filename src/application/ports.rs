@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::domain::catalog::PackageCatalog;
+use crate::domain::catalog::ProjectCatalog;
 use crate::domain::error::AppError;
 use crate::domain::ids::PaneId;
 use crate::domain::pane::{CreatedTab, LayoutSnapshot, OpenedPane, PaneInfo};
@@ -39,13 +39,11 @@ pub struct CreateTab {
     pub focus: bool,
 }
 
-/// Result of walking to the nearest package.json. `root` is set as soon as a
-/// candidate is found, even when parsing then fails, so a nested invalid or
-/// empty package is not mistaken for its parent.
+/// Frozen project snapshot. Errors retain the candidate root for diagnostics.
 #[derive(Debug, Clone)]
 pub struct LoadedCatalog {
     pub root: Option<PathBuf>,
-    pub catalog: Result<PackageCatalog, AppError>,
+    pub catalog: Result<ProjectCatalog, AppError>,
 }
 
 impl LoadedCatalog {

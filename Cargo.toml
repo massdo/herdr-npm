@@ -17,10 +17,13 @@ path = "src/main.rs"
 
 [dependencies]
 crossterm = "0.29"
+globset = "0.4"
 ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml_ng = "0.10"
 unicode-width = "0.2"
+walkdir = "2.5"
 
 [dev-dependencies]
 cucumber = "0.23"

@@ -461,18 +461,20 @@ mod tests {
 
     fn listed(scripts: &[(&str, &str)]) -> ListedScripts {
         ListedScripts {
-            catalog: Ok(PackageCatalog {
-                root: std::path::PathBuf::from("/work/app"),
-                display_name: "app".into(),
-                manager: PackageManager::Npm,
-                scripts: scripts
-                    .iter()
-                    .map(|(name, command)| Script {
-                        name: (*name).into(),
-                        command: (*command).into(),
-                    })
-                    .collect(),
-            }),
+            catalog: Ok(crate::domain::catalog::ProjectCatalog::Package(
+                PackageCatalog {
+                    root: std::path::PathBuf::from("/work/app"),
+                    display_name: "app".into(),
+                    manager: PackageManager::Npm,
+                    scripts: scripts
+                        .iter()
+                        .map(|(name, command)| Script {
+                            name: (*name).into(),
+                            command: (*command).into(),
+                        })
+                        .collect(),
+                },
+            )),
             used_start_cwd: false,
             root: Some(std::path::PathBuf::from("/work/app")),
         }
@@ -503,7 +505,8 @@ mod tests {
     #[test]
     fn narrow_header_keeps_the_search_icon_inside_its_hit_target() {
         for count in [40, 400] {
-            let mut catalog = listed(&[("dev", "vite")]).catalog.unwrap();
+            let project = listed(&[("dev", "vite")]).catalog.unwrap();
+            let mut catalog = project.first_package().unwrap().clone();
             catalog.manager = PackageManager::Pnpm;
             catalog.scripts = vec![catalog.scripts[0].clone(); count];
             let mut terminal = Terminal::new(TestBackend::new(12, 1)).unwrap();

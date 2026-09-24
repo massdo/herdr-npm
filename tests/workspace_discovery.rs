@@ -1,0 +1,232 @@
+mod workspace_fixture;
+
+use herdr_npm::domain::catalog::ProjectCatalog;
+use herdr_npm::domain::error::AppError;
+use workspace_fixture::Fixture;
+
+#[test]
+fn journal_from_root_member_and_intermediate_directory() {
+    let f = Fixture::journal();
+    for origin in ["", "apps/mcp", "apps", "apps/mcp/src"] {
+        let workspace = f.workspace(origin);
+        assert_eq!(workspace.packages.len(), 6);
+        assert_eq!(
+            workspace
+                .packages
+                .iter()
+                .map(|p| p.relative_path.to_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                ".",
+                "apps/auth",
+                "apps/cli",
+                "apps/mcp",
+                "packages/core",
+                "packages/infrastructure"
+            ]
+        );
+        for p in &workspace.packages {
+            assert_eq!(p.catalog.as_ref().unwrap().manager.as_str(), "pnpm");
+        }
+        assert!(
+            workspace.packages[4]
+                .catalog
+                .as_ref()
+                .unwrap()
+                .scripts
+                .is_empty()
+        );
+        assert!(
+            workspace.packages[5]
+                .catalog
+                .as_ref()
+                .unwrap()
+                .scripts
+                .is_empty()
+        );
+        assert_eq!(
+            workspace.packages[3]
+                .catalog
+                .as_ref()
+                .unwrap()
+                .scripts
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>(),
+            ["dev", "start"]
+        );
+    }
+    assert_eq!(
+        f.workspace("apps/mcp").active_package,
+        Some(f.path("apps/mcp"))
+    );
+}
+
+#[test]
+fn npm_formats_globs_exclusions_duplicates_and_unlisted_package() {
+    for workspaces in [
+        r#"["apps/**", "apps/*", "libs/{a,b}[12]?", "!apps/excluded"]"#,
+        r#"{"packages":["!apps/excluded", "apps/**", "apps/*", "libs/{a,b}[12]?"]}"#,
+    ] {
+        let f = Fixture::new();
+        f.write("package.json", &format!(r#"{{"workspaces":{workspaces}}}"#));
+        for path in [
+            "apps/one",
+            "apps/deep/two",
+            "apps/excluded",
+            "libs/a1x",
+            "libs/b2y",
+            "libs/a3x",
+            "unlisted",
+            "node_modules/bad",
+            "apps/node_modules/bad",
+            ".git/bad",
+        ] {
+            f.package(path, r#"{"scripts":{"dev":"echo ok"}}"#);
+        }
+        let w = f.workspace("");
+        assert_eq!(
+            w.packages
+                .iter()
+                .map(|p| p.relative_path.to_str().unwrap())
+                .collect::<Vec<_>>(),
+            [".", "apps/deep/two", "apps/one", "libs/a1x", "libs/b2y"]
+        );
+        assert!(matches!(
+            f.load("unlisted").catalog,
+            Ok(ProjectCatalog::Package(_))
+        ));
+    }
+}
+
+#[test]
+fn pnpm_authority_nested_workspace_and_git_boundary() {
+    let f = Fixture::journal();
+    f.write("package.json", r#"{"workspaces":["unlisted"]}"#);
+    f.package("unlisted", r#"{"scripts":{"dev":"echo ok"}}"#);
+    assert_eq!(f.workspace("").packages.len(), 6);
+    f.write("apps/mcp/pnpm-workspace.yaml", "packages: [sub/*]\n");
+    f.package("apps/mcp/sub/one", "{}");
+    assert_eq!(f.workspace("apps/mcp/sub/one").root, f.path("apps/mcp"));
+    f.write("apps/auth/.git", "gitdir: irrelevant\n");
+    let loaded = f.load("apps/auth").catalog.unwrap();
+    assert!(matches!(loaded, ProjectCatalog::Package(_)));
+    assert_eq!(loaded.first_package().unwrap().manager.as_str(), "npm");
+}
+
+#[test]
+fn local_manager_signals_win_and_inheritance_stops_at_root() {
+    let f = Fixture::journal();
+    f.package(
+        "apps/auth",
+        r#"{"packageManager":"npm@10","scripts":{"dev":"echo ok"}}"#,
+    );
+    f.write("apps/mcp/package-lock.json", "{}");
+    let w = f.workspace("");
+    assert_eq!(
+        w.packages[1].catalog.as_ref().unwrap().manager.as_str(),
+        "npm"
+    );
+    assert_eq!(
+        w.packages[2].catalog.as_ref().unwrap().manager.as_str(),
+        "pnpm"
+    );
+    assert_eq!(
+        w.packages[3].catalog.as_ref().unwrap().manager.as_str(),
+        "npm"
+    );
+    f.write("apps/pnpm-lock.yaml", "lockfileVersion: '9.0'");
+    f.write("apps/mcp/pnpm-workspace.yaml", "packages: [sub/*]");
+    f.package("apps/mcp/sub/one", r#"{"scripts":{"dev":"echo ok"}}"#);
+    std::fs::remove_file(f.path("apps/mcp/package-lock.json")).unwrap();
+    assert_eq!(
+        f.workspace("apps/mcp").packages[1]
+            .catalog
+            .as_ref()
+            .unwrap()
+            .manager
+            .as_str(),
+        "npm"
+    );
+}
+
+#[test]
+fn invalid_declarations_have_paths_and_never_fall_back() {
+    for yaml in [
+        "packages: [",
+        "packages: wrong",
+        "packages: [42]",
+        "useNodeVersion: 22",
+        "packages: ['[']",
+    ] {
+        let f = Fixture::journal();
+        f.write("pnpm-workspace.yaml", yaml);
+        let err = f.load("apps/mcp").catalog.unwrap_err();
+        assert!(
+            matches!(err, AppError::InvalidWorkspace { .. }),
+            "{yaml}: {err}"
+        );
+        assert!(err.to_string().contains("pnpm-workspace.yaml"));
+    }
+    let f = Fixture::new();
+    f.write(
+        "package.json",
+        r#"{"workspaces":{"wrong":[]},"scripts":{"dev":"echo ok"}}"#,
+    );
+    assert!(matches!(
+        f.load("").catalog,
+        Err(AppError::InvalidWorkspace { .. })
+    ));
+}
+
+#[test]
+fn local_errors_and_rootless_yaml_keep_valid_members() {
+    let f = Fixture::journal();
+    f.package("apps/auth", "{");
+    std::fs::remove_file(f.path("apps/cli/package.json")).unwrap();
+    std::fs::create_dir(f.path("apps/cli/package.json")).unwrap();
+    let w = f.workspace("");
+    assert!(matches!(
+        w.packages[1].catalog,
+        Err(AppError::InvalidPackageJson)
+    ));
+    assert!(matches!(
+        w.packages[2].catalog,
+        Err(AppError::CannotReadPackageJson { .. })
+    ));
+    assert_eq!(w.packages[3].catalog.as_ref().unwrap().scripts.len(), 2);
+    std::fs::remove_file(f.path("package.json")).unwrap();
+    assert_eq!(f.workspace("apps/mcp").packages.len(), 5);
+}
+
+#[test]
+fn symlink_escape_cycles_ignored_and_internal_aliases_deduplicated() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::journal();
+    let outside = Fixture::new();
+    outside.package("", r#"{"scripts":{"dev":"echo outside"}}"#);
+    symlink(outside.path(""), f.path("apps/external")).unwrap();
+    symlink(f.path("apps"), f.path("apps/loop")).unwrap();
+    symlink(f.path("apps/mcp"), f.path("apps/alias")).unwrap();
+    f.package("node_modules/hidden", "{}");
+    symlink(f.path("node_modules/hidden"), f.path("apps/hidden")).unwrap();
+    assert_eq!(f.workspace("").packages.len(), 6);
+}
+
+#[test]
+fn snapshot_stays_frozen_after_manifests_and_managers_change() {
+    let f = Fixture::journal();
+    let w = f.workspace("apps/mcp");
+    f.package(
+        "apps/mcp",
+        r#"{"packageManager":"npm","scripts":{"new":"echo changed"}}"#,
+    );
+    assert_eq!(
+        w.packages[3].catalog.as_ref().unwrap().scripts[0].name,
+        "dev"
+    );
+    assert_eq!(
+        w.packages[3].catalog.as_ref().unwrap().manager.as_str(),
+        "pnpm"
+    );
+}
