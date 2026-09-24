@@ -45,18 +45,9 @@ pub fn parse_package_json(
     bytes: &[u8],
     lockfiles: Lockfiles,
 ) -> Result<crate::domain::catalog::PackageCatalog, AppError> {
-    parse_package(
-        root,
-        bytes,
-        detect_package_manager(
-            serde_json::from_slice::<Value>(bytes)
-                .ok()
-                .as_ref()
-                .and_then(|v| v.get("packageManager")),
-            lockfiles,
-        ),
-        false,
-    )
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| AppError::InvalidPackageJson)?;
+    let manager = detect_package_manager(value.get("packageManager"), lockfiles);
+    parse_package(root, value, manager, false)
 }
 
 pub fn parse_workspace_package(
@@ -64,16 +55,16 @@ pub fn parse_workspace_package(
     bytes: &[u8],
     manager: PackageManager,
 ) -> Result<crate::domain::catalog::PackageCatalog, AppError> {
-    parse_package(root, bytes, manager, true)
+    let value = serde_json::from_slice(bytes).map_err(|_| AppError::InvalidPackageJson)?;
+    parse_package(root, value, manager, true)
 }
 
 fn parse_package(
     root: &Path,
-    bytes: &[u8],
+    value: Value,
     manager: PackageManager,
     allow_empty: bool,
 ) -> Result<crate::domain::catalog::PackageCatalog, AppError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| AppError::InvalidPackageJson)?;
     let Value::Object(map) = value else {
         return Err(AppError::InvalidPackageJson);
     };

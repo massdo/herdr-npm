@@ -31,14 +31,6 @@ pub struct SearchState {
 }
 
 impl SearchState {
-    fn for_len(len: usize) -> Self {
-        Self {
-            mode: SearchMode::Off,
-            query: String::new(),
-            matches: unfiltered(len),
-        }
-    }
-
     pub fn is_editing(&self) -> bool {
         self.mode == SearchMode::Editing
     }
@@ -48,15 +40,6 @@ impl SearchState {
     }
 }
 
-fn unfiltered(len: usize) -> Vec<FuzzyMatch> {
-    (0..len)
-        .map(|index| FuzzyMatch {
-            index,
-            positions: Vec::new(),
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CatalogRow {
     Group(PathBuf),
@@ -64,6 +47,15 @@ pub enum CatalogRow {
 }
 
 impl CatalogRow {
+    fn scripts(catalog: &PackageCatalog) -> impl Iterator<Item = Self> + '_ {
+        catalog.scripts.iter().map(|script| {
+            Self::Script(RunIntent {
+                package_root: catalog.root.clone(),
+                script_name: script.name.clone(),
+            })
+        })
+    }
+
     pub fn package_root(&self) -> &Path {
         match self {
             Self::Group(root) => root,
@@ -99,16 +91,8 @@ impl SidebarApp {
         let mut rows = Vec::new();
         let mut expanded = BTreeSet::new();
         let mut preferred = None;
-        let mut append_scripts = |catalog: &PackageCatalog| {
-            rows.extend(catalog.scripts.iter().map(|script| {
-                CatalogRow::Script(RunIntent {
-                    package_root: catalog.root.clone(),
-                    script_name: script.name.clone(),
-                })
-            }));
-        };
         match &listed.catalog {
-            Ok(ProjectCatalog::Package(package)) => append_scripts(package),
+            Ok(ProjectCatalog::Package(package)) => rows.extend(CatalogRow::scripts(package)),
             Ok(ProjectCatalog::Workspace(workspace)) => {
                 expanded.insert(workspace.root.clone());
                 if let Some(active) = &workspace.active_package {
@@ -136,12 +120,7 @@ impl SidebarApp {
                 for package in &workspace.packages {
                     rows.push(CatalogRow::Group(package.root.clone()));
                     if let Ok(catalog) = &package.catalog {
-                        rows.extend(catalog.scripts.iter().map(|script| {
-                            CatalogRow::Script(RunIntent {
-                                package_root: catalog.root.clone(),
-                                script_name: script.name.clone(),
-                            })
-                        }));
+                        rows.extend(CatalogRow::scripts(catalog));
                     }
                 }
             }
@@ -163,7 +142,11 @@ impl SidebarApp {
             process_running: true,
             workspace_id: String::new(),
             launch_error: None,
-            search: SearchState::for_len(0),
+            search: SearchState {
+                mode: SearchMode::Off,
+                query: String::new(),
+                matches: Vec::new(),
+            },
             theme,
             rows,
             expanded,
