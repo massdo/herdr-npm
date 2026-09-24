@@ -51,7 +51,7 @@ impl Fixture {
 
     pub fn package(&self, path: &str, json: &str) {
         self.write(
-            &format!("{}/package.json", path.trim_end_matches('/')).trim_start_matches('/'),
+            format!("{}/package.json", path.trim_end_matches('/')).trim_start_matches('/'),
             json,
         );
     }
