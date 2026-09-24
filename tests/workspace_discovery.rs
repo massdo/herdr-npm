@@ -263,3 +263,27 @@ fn dangling_links_do_not_invalidate_the_workspace() {
     std::os::unix::fs::symlink("missing", f.path("apps/dangling")).unwrap();
     assert_eq!(f.workspace("").packages.len(), 6);
 }
+
+#[test]
+fn unreadable_non_member_subtree_does_not_block_the_workspace() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::journal();
+    for relative in ["apps/auth/src/secret", "cache"] {
+        let directory = f.path(relative);
+        std::fs::create_dir_all(&directory).unwrap();
+        let original = std::fs::metadata(&directory).unwrap().permissions();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let loaded = f.load("");
+        std::fs::set_permissions(&directory, original).unwrap();
+        let ProjectCatalog::Workspace(workspace) = loaded.catalog.unwrap() else {
+            panic!("lost workspace with unreadable {relative}")
+        };
+        assert_eq!(workspace.packages.len(), 6);
+        assert!(
+            workspace
+                .packages
+                .iter()
+                .all(|package| package.catalog.is_ok())
+        );
+    }
+}
