@@ -230,3 +230,36 @@ fn snapshot_stays_frozen_after_manifests_and_managers_change() {
         "pnpm"
     );
 }
+
+#[test]
+fn unreadable_member_directory_remains_a_local_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::journal();
+    let member = f.path("apps/auth");
+    let original = std::fs::metadata(&member).unwrap().permissions();
+    std::fs::set_permissions(&member, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let denied = std::fs::read(member.join("package.json")).is_err();
+    let loaded = f.load("");
+    std::fs::set_permissions(&member, original).unwrap();
+    let ProjectCatalog::Workspace(workspace) = loaded.catalog.unwrap() else {
+        panic!("lost workspace")
+    };
+    assert_eq!(workspace.packages.len(), 6);
+    assert_eq!(workspace.packages[1].catalog.is_err(), denied);
+    assert_eq!(
+        workspace.packages[3]
+            .catalog
+            .as_ref()
+            .unwrap()
+            .scripts
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn dangling_links_do_not_invalidate_the_workspace() {
+    let f = Fixture::journal();
+    std::os::unix::fs::symlink("missing", f.path("apps/dangling")).unwrap();
+    assert_eq!(f.workspace("").packages.len(), 6);
+}

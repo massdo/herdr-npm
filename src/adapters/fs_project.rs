@@ -254,6 +254,17 @@ fn discover_workspace(
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) if error.loop_ancestor().is_some() => continue,
+            Err(error)
+                if error.path().is_some_and(|path| {
+                    // A member already discovered below retains its own manifest error.
+                    path.canonicalize()
+                        .is_ok_and(|path| members.contains(&path))
+                        || fs::symlink_metadata(path)
+                            .is_ok_and(|meta| meta.file_type().is_symlink())
+                }) =>
+            {
+                continue;
+            }
             Err(error) => return Err(invalid_workspace(declaration, error)),
         };
         if entry.depth() == 0 || !entry.file_type().is_dir() {
