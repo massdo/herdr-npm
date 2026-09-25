@@ -5,21 +5,22 @@ Column of npm/pnpm scripts for the current package or declared workspace, as a H
 ## Prerequisites
 
 - Herdr **0.9.1** (protocol 22)
-- Rust **1.89** (edition 2024) when the install builds from source (see below)
 - macOS or Linux
 - `npm` or `pnpm` on `PATH`
-- Recipe shells: `sh`, `bash`, `zsh` (the tab Herdr creates uses the configured shell)
+- Script tabs use Herdr's configured shell: `sh`, `bash` and `zsh` are supported
+- Rust **1.89** (edition 2024), only when the install builds from source (see below)
 
-Heartbeat, marketplace listing, Windows, and yarn/bun as managers are out of V1.
+Windows is not supported. Yarn and Bun are not supported as package managers
+yet: projects that use them run their scripts through npm.
 
 ## Install from GitHub
 
-Install a published release tag (see
+Install the latest release (see
 [Releases](https://github.com/massdo/herdr-npm/releases)) and confirm that Herdr
 enabled the plugin:
 
 ```sh
-herdr plugin install massdo/herdr-npm --ref v<version> --yes
+herdr plugin install massdo/herdr-npm --ref v0.2.0 --yes
 herdr plugin list
 ```
 
@@ -54,17 +55,6 @@ In Herdr, open a project with a `package.json`, then run
 `herdr plugin action invoke herdr-npm.toggle` from a shell to open the scripts
 column. This plugin repository itself does not contain a `package.json`.
 
-`sh scripts/install-smoke.sh <SHA>` does that in a throwaway Herdr profile (it does not edit your personal `config.toml`).
-
-`sh scripts/install-smoke.sh <SHA> --prebuilt` validates a release install
-instead; pass the full SHA of a published tag. It runs in a disposable
-environment without Rust (empty `HOME`, and a `PATH` limited to Herdr, Git,
-Node, npm, Python and the system directories) and checks that the installed
-commit, the tag and `SOURCE_COMMIT` agree, that the binary matches
-`SHA256SUMS`, that `herdr-plugin.toml` is unchanged, that the build reported
-the download, and that nothing was compiled (no `target/release/deps`). A
-failed run keeps its diagnostics in `/tmp/hni-diag.*`.
-
 ## Linked checkout (development)
 
 ```sh
@@ -76,23 +66,22 @@ herdr plugin link "$PWD" --enabled
 
 ## Keybindings
 
-Do not write these into a personal `config.toml` from the recipe scripts. Opt in yourself:
+To toggle the column from the keyboard, add a binding to your Herdr
+`config.toml`, for example:
 
 ```toml
-# macOS / Ghostty
+# macOS, in a terminal that forwards Cmd shortcuts (such as Ghostty)
 [[keys.command]]
 key = "cmd+shift+s"
 type = "plugin_action"
 command = "herdr-npm.toggle"
 
-# Linux (Herdr prefix then Shift+S)
+# Linux (Herdr prefix, then Shift+S)
 [[keys.command]]
 key = "prefix+shift+s"
 type = "plugin_action"
 command = "herdr-npm.toggle"
 ```
-
-If CI or a headless PTY cannot reproduce Ghostty's `cmd+shift+s`, invoke `herdr-npm.toggle` from the CLI or use `prefix+shift+s`. Confirm `cmd+shift+s` once in a real Ghostty window on macOS.
 
 ## Usage
 
@@ -100,7 +89,7 @@ If CI or a headless PTY cannot reproduce Ghostty's `cmd+shift+s`, invoke `herdr-
 
 The header shows the package name and `npm`/`pnpm`. Each script row starts with a play icon. `j`/`k` (and arrows) move the selection without wrapping. The mouse wheel scrolls the list without moving the selection. `h`/`l` scroll the full command on the footer. A too-small pane (under 12 inner columns or 4 rows) shows `Terminal too small` and blocks launch.
 
-Enter or a left mouse down on a row's play icon starts `npm run -- <script>` or `pnpm run -- <script>` in a **new tab**, `focus: false`, cwd = package root. Clicking the name or command only selects the script. The sidebar keeps focus and the frozen catalogue. Closing that tab stops an ordinary recipe process; a normal exit leaves the tab and its output readable. `q` typed in a script tab is not eaten by the sidebar.
+Enter or a left mouse down on a row's play icon starts `npm run -- <script>` or `pnpm run -- <script>` in a **new tab**, `focus: false`, cwd = package root. Clicking the name or command only selects the script. The sidebar keeps focus and the frozen catalogue. Closing that tab stops the script (a process that daemonizes itself may survive); a normal exit leaves the tab and its output readable. `q` typed in a script tab is not eaten by the sidebar.
 
 `/`, Ctrl+F or the header search icon opens a fuzzy search on script names. Enter applies the filter and selects its first result; another Enter launches it. Esc clears the search before closing the pane. While editing, letters such as `q`, `j` and `k` are query text.
 
@@ -184,8 +173,9 @@ for the reporting policy.
 ## Validate
 
 ```sh
-sh scripts/check.sh all   # Rust + Cucumber + fetch-or-build, offline
-sh scripts/e2e.sh         # isolated Herdr + PTY, macOS or Linux
+sh scripts/check.sh all                 # Rust + Cucumber + fetch-or-build, offline
+sh scripts/e2e.sh                       # isolated Herdr + PTY, macOS or Linux
+sh scripts/install-smoke.sh <SHA|tag>   # install from GitHub in a throwaway Herdr profile
 ```
 
 The full E2E journey includes a disposable six-package pnpm workspace, opened
@@ -193,3 +183,19 @@ from its root and from `apps/mcp`. `HERDR_NPM_E2E_CASE=monorepo sh scripts/e2e.s
 runs that journey alone. It uses harmless witness scripts, never a real project's
 operational scripts. Set `HERDR_NPM_E2E_ARTIFACTS` to a directory to retain the
 isolated configuration, launch records and logs.
+
+`scripts/install-smoke.sh` installs the plugin from GitHub at a commit SHA or a
+release tag, in a throwaway Herdr profile that leaves your personal `config.toml`
+alone. In a standalone package, it opens the column, runs a witness script and
+closes the column. It then opens a disposable npm workspace, whose root and two
+members share a script name, from the root and from a member. It checks the
+three groups and runs the member's script once, in the member's directory.
+
+Add `--prebuilt` to validate a release install, with a published tag or the full
+SHA of its commit. The run happens in a disposable environment without Rust
+(empty `HOME`, and a `PATH` limited to Herdr, Git, Node, npm, Python and the
+system directories). It checks that the installed commit, the tag and
+`SOURCE_COMMIT` agree, that the binary matches `SHA256SUMS`, that
+`herdr-plugin.toml` is unchanged, that the build reported the download, and
+that nothing was compiled (no `target/release/deps`). Each run keeps its
+diagnostics in `/tmp/hni-diag.*`.

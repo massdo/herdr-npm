@@ -47,7 +47,7 @@ Ouvrez dans Herdr un projet qui contient un `package.json`, puis exécutez :
 herdr plugin action invoke herdr-npm.toggle
 ```
 
-La colonne affiche les scripts npm ou pnpm du paquet courant. Utilisez les flèches ou `j` et `k` pour sélectionner un script, puis `Entrée` pour le lancer. Appuyez sur `q` pour fermer la colonne.
+La colonne affiche les scripts npm ou pnpm du paquet courant. Dans un workspace (monorepo) déclaré par `pnpm-workspace.yaml` ou par le champ `workspaces` du `package.json` racine, elle affiche un groupe par paquet, et chaque script se lance dans le dossier de son paquet ; la section « Workspaces / monorepos » du README détaille ce mode. Utilisez les flèches ou `j` et `k` pour sélectionner un script, puis `Entrée` pour le lancer. Appuyez sur `q` pour fermer la colonne.
 
 Pour ajouter un raccourci, placez l'une de ces configurations dans la configuration personnelle de Herdr :
 
@@ -79,47 +79,49 @@ sh scripts/check.sh all
 sh scripts/e2e.sh
 ```
 
-## Rendre le plugin public
+Une fois le commit poussé sur GitHub, `sh scripts/install-smoke.sh <SHA>`
+l'installe dans un profil Herdr jetable, sur un paquet simple puis sur un
+workspace npm.
 
-1. Auditez les fichiers, tout l'historique Git, les branches et tags, ainsi que
-   les titres, descriptions, commentaires et références des pull requests.
-   Vérifiez les secrets et les informations personnelles des auteurs et
-   committers. Retirer une donnée du dernier commit ne l'efface pas de
-   l'historique. Un force-push ne purge pas non plus les anciennes références
-   de pull requests ni les vues mises en cache sur GitHub ; voir la
-   [procédure GitHub de suppression des données sensibles](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
-2. Faites valider séparément le traitement de l'historique et le passage en
-   public. Vérifiez `SECURITY.md`, la description GitHub et la présence de
-   `herdr-plugin.toml` sur la branche par défaut. Activez les alertes Dependabot
-   dès maintenant si elles sont disponibles ; leur état se vérifie séparément
-   de `security_and_analysis`.
-3. Rendez le dépôt GitHub `massdo/herdr-npm` public uniquement après cette
-   validation.
-4. Activez et vérifiez le signalement privé des vulnérabilités, puis mettez à
-   jour le paragraphe de disponibilité dans `SECURITY.md`. Vérifiez également
-   le secret scanning et la protection des push dans les réglages GitHub.
-5. Ajoutez le topic GitHub `herdr-plugin` pour demander l'indexation publique.
-   GitHub autorise les topics sur les dépôts privés ; c'est l'indexation du
-   marketplace qui nécessite un dépôt public.
-6. Publiez une release (section suivante), puis mettez à jour les versions
-   prises en charge dans `SECURITY.md`.
+## Réglages du dépôt public
 
-Le marketplace Herdr indexe automatiquement les dépôts publics portant le topic `herdr-plugin`. L'actualisation peut prendre environ trente minutes.
+Le dépôt `massdo/herdr-npm` est public. Ces réglages ont été faits une fois ;
+ils se vérifient dans les réglages GitHub et ne sont pas à refaire à chaque
+release :
+
+- signalement privé des vulnérabilités activé, vers lequel renvoie `SECURITY.md` ;
+- secret scanning et protection des push activés ;
+- alertes et correctifs de sécurité Dependabot activés ; mises à jour de
+  versions mensuelles configurées dans `.github/dependabot.yml` ;
+- branche `main` protégée : pull request obligatoire, cinq checks requis
+  (`offline` et `recipe` sur macOS et Ubuntu, `secrets`), historique linéaire,
+  règles appliquées aussi aux administrateurs ;
+- suppression automatique des branches après fusion ;
+- immutabilité des releases activée :
+  `gh api repos/massdo/herdr-npm/immutable-releases` renvoie `"enabled": true`.
+
+Le marketplace Herdr indexe automatiquement les dépôts publics portant le topic GitHub `herdr-plugin`. L'actualisation peut prendre environ trente minutes.
 
 ## Publier une release
 
-1. Une seule fois, avant la première publication : dans les réglages GitHub du
-   dépôt, section « Releases », cochez **Enable release immutability**.
-   L'immutabilité ne s'applique qu'aux releases publiées ensuite. Vérifiez que
-   `gh api repos/massdo/herdr-npm/immutable-releases` renvoie
-   `"enabled": true`.
-2. Alignez la version dans `Cargo.toml`, `Cargo.lock` et `herdr-plugin.toml`,
-   fusionnez sur `main` et attendez une CI verte.
+1. Alignez la version dans `Cargo.toml`, `Cargo.lock` et `herdr-plugin.toml`,
+   fusionnez sur `main` et attendez que CI et E2E soient verts sur ce commit.
+   Le workflow `release` ne relance pas les E2E Herdr.
+2. Les notes de release reprennent les titres des pull requests fusionnées
+   depuis la release précédente. Retitrez celles qui ne sont pas lisibles pour
+   le public, puis prévisualisez les notes :
+
+   ```sh
+   gh api repos/massdo/herdr-npm/releases/generate-notes \
+     -f tag_name=v0.2.0 -f target_commitish=<SHA> -f previous_tag_name=v0.1.0 \
+     --jq .body
+   ```
+
 3. Créez le tag sur ce commit validé, puis poussez-le :
 
    ```sh
-   git tag -a v0.1.0 <SHA> -m v0.1.0
-   git push origin v0.1.0
+   git tag -a v0.2.0 <SHA> -m v0.2.0
+   git push origin v0.2.0
    ```
 
 4. Le workflow `release` refuse un tag qui diverge de ces trois versions,
@@ -134,23 +136,26 @@ Le marketplace Herdr indexe automatiquement les dépôts publics portant le topi
    `/sbin` ne contiennent pas Rust, puis conservez la sortie comme preuve :
 
    ```sh
-   sh scripts/install-smoke.sh <SHA du tag> --prebuilt
+   sh scripts/install-smoke.sh v0.2.0 --prebuilt
    ```
 
    Le script construit un environnement jetable sans Rust et vérifie le
    commit, le hash, le manifeste, le message de téléchargement et l'absence
-   de compilation, puis ouvre la colonne, lance `hello` et la referme.
+   de compilation. Il ouvre ensuite la colonne sur un paquet simple, puis sur
+   un workspace npm depuis sa racine et depuis un membre, et lance chaque fois
+   un script témoin. Ses journaux restent dans `/tmp/hni-diag.*`.
 
-Les utilisateurs pourront installer la branche par défaut avec :
+Les utilisateurs installent une version publiée, ce qui est recommandé :
+
+```sh
+herdr plugin install massdo/herdr-npm --ref v0.2.0 --yes
+```
+
+Ils peuvent aussi installer la branche par défaut, qui se compile depuis les
+sources quand aucune release ne correspond à son commit :
 
 ```sh
 herdr plugin install massdo/herdr-npm --yes
-```
-
-Ils pourront aussi installer une version publiée, ce qui est recommandé :
-
-```sh
-herdr plugin install massdo/herdr-npm --ref v0.1.0 --yes
 ```
 
 Herdr récupère alors le dépôt et exécute `scripts/fetch-or-build.sh`, déclaré
