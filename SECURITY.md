@@ -2,8 +2,10 @@
 
 ## Supported code
 
-Security fixes target the latest code on `main`. No stable release has been
-published yet, and older commits do not receive separate security backports.
+Releases are published as `v<version>` tags on
+[GitHub](https://github.com/massdo/herdr-npm/releases). Security fixes land on
+`main` and ship in the next release; older releases and commits do not receive
+backports. Use the latest release.
 
 ## Reporting a vulnerability
 
@@ -17,8 +19,11 @@ or pull request; wait until a private reporting channel is available.
 
 ## Trust boundary
 
-herdr-npm reads the nearest `package.json` and launches the selected npm or pnpm
-script in a Herdr shell tab. It does not sandbox scripts or their lifecycle
+herdr-npm reads the nearest `package.json`. Inside a declared workspace, it also
+reads the workspace declaration (`pnpm-workspace.yaml` or the `workspaces` field
+of the root `package.json`) and the `package.json` of each member. It launches
+the selected npm or pnpm script in a Herdr shell tab, in the directory of that
+script's package. It does not sandbox scripts or their lifecycle
 hooks: they run with the user's permissions and the shell's environment and
 can access files, credentials, and the network. Review a project's scripts
 before running them. Quoting script names prevents shell argument injection;
