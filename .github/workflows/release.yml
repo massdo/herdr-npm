@@ -13,7 +13,7 @@ jobs:
     outputs:
       commit: ${{ steps.commit.outputs.sha }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: tag, Cargo.toml, herdr-plugin.toml and Cargo.lock agree
         run: |
           tag=${GITHUB_REF_NAME#v}
@@ -36,7 +36,7 @@ jobs:
         os: [macos-15, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: tag commit
         env:
           COMMIT: ${{ needs.versions.outputs.commit }}
@@ -44,7 +44,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b4f984c1e7daae8e175614de3e73a8411a20333c # 1.89.0
         with:
           components: rustfmt, clippy
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
       - name: pnpm
@@ -71,7 +71,7 @@ jobs:
     env:
       BIN: target/${{ matrix.triple }}/release/herdr-npm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: tag commit and runner architecture
         env:
           COMMIT: ${{ needs.versions.outputs.commit }}
