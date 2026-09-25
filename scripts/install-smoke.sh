@@ -1,19 +1,35 @@
 #!/bin/sh
-# Fresh-profile install from a published git SHA.
-# Usage: sh scripts/install-smoke.sh <SHA> [--prebuilt]
-# --prebuilt validates a release install: pass the full SHA of a published
-# tag. The run happens in a disposable environment without Rust and checks
-# that the verified release binary was installed, not compiled.
+# Fresh-profile install from GitHub at a commit SHA or a release tag.
+# Usage: sh scripts/install-smoke.sh <SHA|tag> [--prebuilt]
+# --prebuilt validates a release install: pass a published tag or the full SHA
+# of its commit. The run happens in a disposable environment without Rust and
+# checks that the verified release binary was installed, not compiled.
+# After a standalone package, a disposable npm workspace is opened from its root
+# and from a member. Diagnostics stay in /tmp/hni-diag.* after every run.
 set -eu
 
-SHA=${1:-}
-PREBUILT=0
-if [ "${2:-}" = --prebuilt ]; then
-  PREBUILT=1
-elif [ -z "$SHA" ] || [ -n "${2:-}" ]; then
-  echo "usage: $0 <git-sha> [--prebuilt]" >&2
+REF=${1:-}
+case "${2:-}" in
+  "") PREBUILT=0 ;;
+  --prebuilt) PREBUILT=1 ;;
+  *) REF="" ;;
+esac
+if [ -z "$REF" ] || [ $# -gt 2 ]; then
+  echo "usage: $0 <git-sha|tag> [--prebuilt]" >&2
   exit 2
 fi
+# A tag is installed as given and compared through the commit it designates.
+case "$REF" in
+  v[0-9]*)
+    # The peeled line of an annotated tag comes last.
+    SHA=$(git ls-remote https://github.com/massdo/herdr-npm "refs/tags/$REF" "refs/tags/$REF^{}" | awk '{ sha = $1 } END { print sha }')
+    if [ -z "$SHA" ]; then
+      echo "tag $REF not found on GitHub" >&2
+      exit 1
+    fi
+    ;;
+  *) SHA=$REF ;;
+esac
 
 PLUGIN_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 RUN_ID=$$
@@ -23,6 +39,7 @@ DIAG=$(mktemp -d /tmp/hni-diag.XXXXXX)
 XDG="$TMP/xdg"
 CONFIG="$XDG/herdr/config.toml"
 FIXTURE="$TMP/app"
+WS="$TMP/ws"
 USER_SOCK="${HOME}/.config/herdr/herdr.sock"
 
 # Never reach the Herdr session this script may be started from.
@@ -38,11 +55,10 @@ cleanup() {
   status=$?
   herdr session stop "$SESSION" >/dev/null 2>&1 || true
   rm -rf "$TMP"
-  if [ "$status" -eq 0 ]; then
-    rm -rf "$DIAG"
-  else
-    echo "install-smoke failed; diagnostics kept in $DIAG" >&2
+  if [ "$status" -ne 0 ]; then
+    echo "install-smoke failed" >&2
   fi
+  echo "diagnostics kept in $DIAG" >&2
   exit "$status"
 }
 trap cleanup EXIT INT HUP TERM
@@ -68,7 +84,7 @@ if [ "$PREBUILT" = 1 ]; then
   echo "== no Rust: cargo and rustc unreachable, no $HOME/.cargo/env =="
 fi
 
-mkdir -p "$XDG/herdr" "$FIXTURE" "$HERDR_PLUGIN_STATE_DIR"
+mkdir -p "$XDG/herdr" "$FIXTURE" "$WS/packages/alpha" "$WS/packages/beta" "$HERDR_PLUGIN_STATE_DIR"
 cat > "$CONFIG" <<'EOF'
 onboarding = false
 [terminal]
@@ -87,6 +103,28 @@ cat > "$FIXTURE/package.json" <<'EOF'
   }
 }
 EOF
+# The root and both members share the hello script: only the selected member
+# may write its witness, once, in its own directory.
+cat > "$WS/package.json" <<'EOF'
+{
+  "name": "install-smoke-ws",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "hello": "echo SMOKE_ROOT >> hello.witness"
+  }
+}
+EOF
+for member in alpha beta; do
+  cat > "$WS/packages/$member/package.json" <<EOF
+{
+  "name": "$member",
+  "scripts": {
+    "hello": "echo SMOKE_$member >> hello.witness"
+  }
+}
+EOF
+done
 
 echo "== herdr $(herdr --version) rustc $(rustc --version 2>/dev/null || echo absent) =="
 if [ "$(herdr --version | awk '{print $2}')" != "0.9.1" ]; then
@@ -113,8 +151,8 @@ if [ "$SOCKET" = "$USER_SOCK" ]; then
   exit 1
 fi
 
-echo "== plugin install massdo/herdr-npm --ref $SHA =="
-herdr --session "$SESSION" plugin install massdo/herdr-npm --ref "$SHA" --yes
+echo "== plugin install massdo/herdr-npm --ref $REF ($SHA) =="
+herdr --session "$SESSION" plugin install massdo/herdr-npm --ref "$REF" --yes
 if [ -f "$HERDR_NPM_BUILD_LOG" ]; then
   cat "$HERDR_NPM_BUILD_LOG"
 fi
@@ -145,7 +183,7 @@ if [ "$PREBUILT" = 1 ]; then
   else
     SUM=$(shasum -a 256 "$ROOT/target/release/herdr-npm")
   fi
-  echo "== commit: ref $SHA, installed $INSTALLED, resolved $RESOLVED, tag v$VERSION $TAG_COMMIT, SOURCE_COMMIT $SOURCE_COMMIT =="
+  echo "== commit: ref $REF ($SHA), installed $INSTALLED, resolved $RESOLVED, tag v$VERSION $TAG_COMMIT, SOURCE_COMMIT $SOURCE_COMMIT =="
   echo "== sha256: installed ${SUM%% *}, published $PUBLISHED =="
   for commit in "$INSTALLED" "$RESOLVED" "$TAG_COMMIT" "$SOURCE_COMMIT"; do
     if [ "$commit" != "$SHA" ]; then
@@ -191,21 +229,42 @@ catalog_visible() {
   herdr --session "$SESSION" pane read "$PANE" --source visible --format text >"$DIAG/sidebar.txt" &&
     grep -q hello "$DIAG/sidebar.txt"
 }
+workspace_visible() {
+  herdr --session "$SESSION" pane read "$PANE" --source visible --format text >"$DIAG/sidebar.txt" &&
+    grep -q '3 packages' "$DIAG/sidebar.txt" &&
+    grep -qF '[.]' "$DIAG/sidebar.txt" &&
+    grep -qF '[packages/alpha]' "$DIAG/sidebar.txt" &&
+    grep -qF '[packages/beta]' "$DIAG/sidebar.txt"
+}
 script_tab_open() {
   herdr --session "$SESSION" tab list >"$DIAG/tabs.json" && grep -q "npm run -- hello" "$DIAG/tabs.json"
 }
 witness_written() {
   grep -qx INSTALL_SMOKE_OK "$FIXTURE/hello.witness" 2>/dev/null
 }
+member_witness_written() {
+  [ -s "$WS/packages/beta/hello.witness" ]
+}
+# Toggles the column open in the focused workspace and sets PANE.
+open_sidebar() {
+  herdr --session "$SESSION" plugin action invoke herdr-npm.toggle
+  wait_for 10 sidebar_open || {
+    echo "the sidebar did not open" >&2
+    exit 1
+  }
+  PANE=$(python3 -c "import json,sys; panes=json.loads(sys.stdin.read())['result']['panes'];
+print(next(p['pane_id'] for p in panes if (p.get('tokens') or {}).get('herdr_npm_sidebar')=='v1'))" <"$DIAG/panes.json")
+}
+close_sidebar() {
+  herdr --session "$SESSION" pane send-keys "$PANE" q
+  wait_for 10 sidebar_closed || {
+    echo "sidebar still present after q" >&2
+    exit 1
+  }
+}
 
 herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label install-smoke --no-focus >/dev/null
-herdr --session "$SESSION" plugin action invoke herdr-npm.toggle
-wait_for 10 sidebar_open || {
-  echo "the sidebar did not open" >&2
-  exit 1
-}
-PANE=$(python3 -c "import json,sys; panes=json.loads(sys.stdin.read())['result']['panes'];
-print(next(p['pane_id'] for p in panes if (p.get('tokens') or {}).get('herdr_npm_sidebar')=='v1'))" <"$DIAG/panes.json")
+open_sidebar
 wait_for 10 catalog_visible || {
   echo "the sidebar does not show the hello script" >&2
   exit 1
@@ -219,10 +278,38 @@ wait_for 20 witness_written || {
   echo "hello did not write its witness file" >&2
   exit 1
 }
-herdr --session "$SESSION" pane send-keys "$PANE" q
-wait_for 10 sidebar_closed || {
-  echo "sidebar still present after q" >&2
+close_sidebar
+
+herdr --session "$SESSION" workspace create --cwd "$WS" --label install-smoke-ws --focus >/dev/null
+open_sidebar
+wait_for 10 workspace_visible || {
+  echo "the sidebar does not show the three workspace packages from the root" >&2
   exit 1
 }
+cp "$DIAG/sidebar.txt" "$DIAG/sidebar-workspace-root.txt"
+close_sidebar
+
+# Opening from a member expands it and selects its first script.
+herdr --session "$SESSION" workspace create --cwd "$WS/packages/beta" --label install-smoke-member --focus >/dev/null
+open_sidebar
+wait_for 10 workspace_visible || {
+  echo "the sidebar does not show the three workspace packages from packages/beta" >&2
+  exit 1
+}
+cp "$DIAG/sidebar.txt" "$DIAG/sidebar-workspace-member.txt"
+herdr --session "$SESSION" pane send-keys "$PANE" Enter
+wait_for 20 member_witness_written || {
+  echo "packages/beta hello did not write its witness file" >&2
+  exit 1
+}
+# A second launch would append a second line.
+sleep 1
+if [ "$(cat "$WS/packages/beta/hello.witness")" != SMOKE_beta ] ||
+  [ -e "$WS/hello.witness" ] || [ -e "$WS/packages/alpha/hello.witness" ]; then
+  echo "the launch did not run packages/beta hello exactly once in packages/beta" >&2
+  exit 1
+fi
+close_sidebar
+
 if [ "$PREBUILT" = 1 ]; then MODE=prebuilt; else MODE=build; fi
-echo "install_smoke_ok ref=$SHA session=$SESSION mode=$MODE"
+echo "install_smoke_ok ref=$REF sha=$SHA session=$SESSION mode=$MODE"
