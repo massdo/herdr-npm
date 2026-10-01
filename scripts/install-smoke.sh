@@ -263,7 +263,7 @@ close_sidebar() {
   }
 }
 
-herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label install-smoke --no-focus >/dev/null
+herdr --session "$SESSION" workspace create --cwd "$FIXTURE" --label install-smoke --focus >/dev/null
 open_sidebar
 wait_for 10 catalog_visible || {
   echo "the sidebar does not show the hello script" >&2
