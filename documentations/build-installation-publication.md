@@ -113,15 +113,15 @@ Le marketplace Herdr indexe automatiquement les dépôts publics portant le topi
 
    ```sh
    gh api repos/massdo/herdr-npm/releases/generate-notes \
-     -f tag_name=v0.2.0 -f target_commitish=<SHA> -f previous_tag_name=v0.1.0 \
+     -f tag_name=v0.2.1 -f target_commitish=<SHA> -f previous_tag_name=v0.2.0 \
      --jq .body
    ```
 
 3. Créez le tag sur ce commit validé, puis poussez-le :
 
    ```sh
-   git tag -a v0.2.0 <SHA> -m v0.2.0
-   git push origin v0.2.0
+   git tag -a v0.2.1 <SHA> -m v0.2.1
+   git push origin v0.2.1
    ```
 
 4. Le workflow `release` refuse un tag qui diverge de ces trois versions,
@@ -136,7 +136,7 @@ Le marketplace Herdr indexe automatiquement les dépôts publics portant le topi
    `/sbin` ne contiennent pas Rust, puis conservez la sortie comme preuve :
 
    ```sh
-   sh scripts/install-smoke.sh v0.2.0 --prebuilt
+   sh scripts/install-smoke.sh v0.2.1 --prebuilt
    ```
 
    Le script construit un environnement jetable sans Rust et vérifie le
@@ -148,7 +148,7 @@ Le marketplace Herdr indexe automatiquement les dépôts publics portant le topi
 Les utilisateurs installent une version publiée, ce qui est recommandé :
 
 ```sh
-herdr plugin install massdo/herdr-npm --ref v0.2.0 --yes
+herdr plugin install massdo/herdr-npm --ref v0.2.1 --yes
 ```
 
 Ils peuvent aussi installer la branche par défaut, qui se compile depuis les

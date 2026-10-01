@@ -20,7 +20,7 @@ Install the latest release (see
 enabled the plugin:
 
 ```sh
-herdr plugin install massdo/herdr-npm --ref v0.2.0 --yes
+herdr plugin install massdo/herdr-npm --ref v0.2.1 --yes
 herdr plugin list
 ```
 
